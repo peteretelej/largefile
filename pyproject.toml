@@ -1,0 +1,54 @@
+[project]
+name = "largefile"
+version = "0.1.0"
+description = "MCP server for surgical editing of large files with intelligent navigation"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+keywords = ["mcp", "large-files", "text-editing", "llm", "ai-tools"]
+authors = [
+    {name = "Peter Etelej", email = "peter@etelej.com"}
+]
+maintainers = [
+    {name = "Peter Etelej", email = "peter@etelej.com"}
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Text Processing",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "click>=8.2.1",
+    "mcp>=1.10.1",
+]
+
+[project.urls]
+Homepage = "https://github.com/peteretelej/largefile"
+Repository = "https://github.com/peteretelej/largefile.git"
+Issues = "https://github.com/peteretelej/largefile/issues"
+Documentation = "https://github.com/peteretelej/largefile#readme"
+
+[project.scripts]
+largefile-mcp = "src.main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.16.1",
+    "pytest>=8.4.1",
+    "pytest-asyncio>=1.0.0",
+    "pytest-cov>=6.2.1",
+    "ruff>=0.12.2",
+]
