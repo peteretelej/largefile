@@ -239,8 +239,8 @@ wheels = [
 
 [[package]]
 name = "largefile"
-version = "0.1.0"
-source = { virtual = "." }
+version = "0.0.1"
+source = { editable = "." }
 dependencies = [
     { name = "click" },
     { name = "mcp" },

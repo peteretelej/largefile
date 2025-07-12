@@ -1,0 +1,30 @@
+#!/bin/bash
+# Pre-push script to validate code quality
+# This script runs the same checks as CI to catch issues early
+
+set -e
+
+echo "🔍 Running pre-push validation..."
+
+# Check if uv is available
+if ! command -v uv &> /dev/null; then
+    echo "❌ uv is not installed. Please install uv first."
+    exit 1
+fi
+
+echo "📦 Installing dependencies..."
+uv sync --dev
+
+echo "🎨 Running ruff linting..."
+uv run ruff check .
+
+echo "🎨 Checking code formatting..."
+uv run ruff format --check .
+
+echo "🔍 Running mypy type checking..."
+uv run mypy src
+
+echo "🧪 Running tests..."
+uv run pytest --cov=src --cov-report=term-missing
+
+echo "✅ All checks passed! Ready to push."
