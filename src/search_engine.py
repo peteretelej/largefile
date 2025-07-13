@@ -37,8 +37,8 @@ def find_fuzzy_matches(
     """Use rapidfuzz for fuzzy matching."""
     try:
         from rapidfuzz import fuzz
-    except ImportError:
-        raise SearchError("rapidfuzz not installed - fuzzy matching unavailable")
+    except ImportError as e:
+        raise SearchError("rapidfuzz not installed - fuzzy matching unavailable") from e
 
     matches = []
     for line_num, line in enumerate(lines, 1):
@@ -79,7 +79,7 @@ def search_file(
     try:
         lines = read_file_lines(file_path, encoding)
     except Exception as e:
-        raise SearchError(f"Cannot read {file_path}: {e}")
+        raise SearchError(f"Cannot read {file_path}: {e}") from e
 
     exact_matches = find_exact_matches(lines, pattern)
     if exact_matches and not fuzzy:

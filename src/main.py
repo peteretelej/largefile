@@ -3,7 +3,7 @@ import asyncio
 from .server import main
 
 
-def cli_main():
+def cli_main() -> None:
     """CLI entry point."""
     asyncio.run(main())
 

@@ -1,25 +1,25 @@
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from .config import config
 from .data_models import FileOverview, OutlineItem, SearchResult
+from .editor import atomic_edit_file
 from .exceptions import EditError, FileAccessError, SearchError
 from .file_access import (
-    create_backup,
     get_file_info,
     normalize_path,
-    read_file_content,
     read_file_lines,
-    write_file_content,
 )
 from .search_engine import search_file
 
 
-def handle_tool_errors(func):
+def handle_tool_errors(func: Callable) -> Callable:
     """Decorator to handle tool errors consistently."""
 
-    def wrapper(*args, **kwargs):
+    def wrapper(*args: Any, **kwargs: Any) -> dict:
         try:
-            return func(*args, **kwargs)
+            return func(*args, **kwargs)  # type: ignore
         except FileAccessError as e:
             return {
                 "error": f"File access failed: {e}",
@@ -312,76 +312,16 @@ def edit_content(
     Returns:
     - EditResult with success status, preview, and change details
     """
-    canonical_path = normalize_path(absolute_file_path)
+    result = atomic_edit_file(
+        absolute_file_path, search_text, replace_text, encoding, fuzzy, preview
+    )
 
-    original_content = read_file_content(canonical_path, encoding)
-
-    if search_text in original_content:
-        modified_content = original_content.replace(search_text, replace_text, 1)
-        match_type = "exact"
-        similarity = 1.0
-        line_number = (
-            original_content[: original_content.find(search_text)].count("\n") + 1
-        )
-    elif fuzzy:
-        lines = read_file_lines(canonical_path, encoding)
-        matches = search_file(canonical_path, search_text, encoding, fuzzy=True)
-
-        if not matches:
-            return {
-                "success": False,
-                "preview": f"No matches found for: {search_text}",
-                "changes_made": 0,
-                "match_type": "none",
-                "similarity_used": 0.0,
-                "line_number": 0,
-            }
-
-        best_match = matches[0]
-        actual_line = lines[best_match.line_number - 1].rstrip("\n\r")
-        modified_content = original_content.replace(actual_line, replace_text, 1)
-        match_type = "fuzzy"
-        similarity = best_match.similarity_score
-        line_number = best_match.line_number
-    else:
-        return {
-            "success": False,
-            "preview": f"No exact matches found for: {search_text}",
-            "changes_made": 0,
-            "match_type": "none",
-            "similarity_used": 0.0,
-            "line_number": 0,
-        }
-
-    preview_lines = []
-    original_lines = original_content.split("\n")
-    modified_lines = modified_content.split("\n")
-
-    for i, (orig, mod) in enumerate(
-        zip(original_lines, modified_lines, strict=False), 1
-    ):
-        if orig != mod:
-            preview_lines.append(f"Line {i}:")
-            preview_lines.append(f"- {orig}")
-            preview_lines.append(f"+ {mod}")
-            break
-
-    preview_text = "\n".join(preview_lines)
-
-    result = {
-        "success": True,
-        "preview": preview_text,
-        "changes_made": 1,
-        "match_type": match_type,
-        "similarity_used": similarity,
-        "line_number": line_number,
+    return {
+        "success": result.success,
+        "preview": result.preview,
+        "changes_made": result.changes_made,
+        "match_type": result.match_type,
+        "similarity_used": result.similarity_used,
+        "line_number": result.line_number,
+        "backup_created": result.backup_created,
     }
-
-    if preview:
-        return result
-
-    backup_path = create_backup(canonical_path)
-    write_file_content(canonical_path, modified_content, encoding)
-
-    result["backup_created"] = backup_path
-    return result

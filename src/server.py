@@ -6,7 +6,7 @@ from .tools import edit_content, get_overview, read_content, search_content
 
 def create_server() -> Server:
     """Create MCP server with largefile tools."""
-    server = Server("largefile")
+    server: Server = Server("largefile")
 
     @server.list_tools()
     async def list_tools() -> list[types.Tool]:
@@ -153,7 +153,7 @@ def create_server() -> Server:
     return server
 
 
-async def main():
+async def main() -> None:
     """Main server entry point."""
     server = create_server()
 

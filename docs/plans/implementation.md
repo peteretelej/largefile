@@ -25,12 +25,12 @@
 
 ### Phase 3: Search/Replace Engine
 
-- [ ] Exact search/replace with atomic file operations
-- [ ] Fuzzy matching with rapidfuzz (sensible defaults)
-- [ ] Clear error reporting (no silent fallbacks)
-- [ ] Preview mode for edit operations
-- [ ] Run scripts/pre-push to validate implementation
-- [ ] Review & Update work plan
+- [x] Exact search/replace with atomic file operations
+- [x] Fuzzy matching with rapidfuzz (sensible defaults)
+- [x] Clear error reporting (no silent fallbacks)
+- [x] Preview mode for edit operations
+- [x] Run scripts/pre-push to validate implementation
+- [x] Review & Update work plan
 
 ### Phase 4: Tree-sitter Integration
 

@@ -34,7 +34,7 @@ def get_file_info(file_path: str) -> dict:
             "strategy": choose_file_strategy(stat.st_size),
         }
     except (FileNotFoundError, PermissionError, OSError) as e:
-        raise FileAccessError(f"Cannot access file {file_path}: {e}")
+        raise FileAccessError(f"Cannot access file {file_path}: {e}") from e
 
 
 def read_file_content(file_path: str, encoding: str = "utf-8") -> str:
@@ -45,11 +45,11 @@ def read_file_content(file_path: str, encoding: str = "utf-8") -> str:
         with open(canonical_path, encoding=encoding) as f:
             return f.read()
     except (FileNotFoundError, PermissionError) as e:
-        raise FileAccessError(f"Cannot read file {file_path}: {e}")
+        raise FileAccessError(f"Cannot read file {file_path}: {e}") from e
     except UnicodeDecodeError as e:
         raise FileAccessError(
             f"Cannot decode file {file_path} with encoding {encoding}: {e}"
-        )
+        ) from e
 
 
 def read_file_lines(file_path: str, encoding: str = "utf-8") -> list[str]:
@@ -60,11 +60,11 @@ def read_file_lines(file_path: str, encoding: str = "utf-8") -> list[str]:
         with open(canonical_path, encoding=encoding) as f:
             return f.readlines()
     except (FileNotFoundError, PermissionError) as e:
-        raise FileAccessError(f"Cannot read file {file_path}: {e}")
+        raise FileAccessError(f"Cannot read file {file_path}: {e}") from e
     except UnicodeDecodeError as e:
         raise FileAccessError(
             f"Cannot decode file {file_path} with encoding {encoding}: {e}"
-        )
+        ) from e
 
 
 def write_file_content(file_path: str, content: str, encoding: str = "utf-8") -> None:
@@ -79,7 +79,7 @@ def write_file_content(file_path: str, content: str, encoding: str = "utf-8") ->
     except Exception as e:
         if os.path.exists(temp_path):
             os.unlink(temp_path)
-        raise FileAccessError(f"Failed to write {file_path}: {e}")
+        raise FileAccessError(f"Failed to write {file_path}: {e}") from e
 
 
 def create_backup(file_path: str) -> str:
@@ -96,4 +96,4 @@ def create_backup(file_path: str) -> str:
         write_file_content(backup_path, content)
         return backup_path
     except Exception as e:
-        raise FileAccessError(f"Failed to create backup: {e}")
+        raise FileAccessError(f"Failed to create backup: {e}") from e
