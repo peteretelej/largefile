@@ -8,7 +8,7 @@ from .mcp_schemas import register_tool_handlers
 
 def create_server() -> Server:
     """Create MCP server with largefile tools."""
-    server = Server("largefile")
+    server: Server = Server("largefile")
     register_tool_handlers(server, tools)
     return server
 

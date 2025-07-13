@@ -1,6 +1,6 @@
 [project]
 name = "largefile"
-version = "0.0.1"
+version = "0.1.0"
 description = "MCP server for surgical editing of large files with intelligent navigation"
 readme = "README.md"
 requires-python = ">=3.10"

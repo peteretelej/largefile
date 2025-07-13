@@ -126,9 +126,12 @@ class EditResult:
 ### Access Strategy
 
 - **<50MB**: Memory loading with Tree-sitter AST caching
-- **>50MB**: Memory-mapped access with streaming search
+- **50-500MB**: Memory-mapped access with streaming search
+- **>500MB**: Streaming processing for very large files
 - **AST caching**: Parse once per session, reuse for semantic operations
 - **Line truncation**: Auto-truncate lines >1000 chars for overview
+- **Atomic operations**: File writes use temp file + rename for integrity
+- **Automatic backups**: Created before edits in `.largefile/backups/`
 
 ### Sessions
 
@@ -161,12 +164,13 @@ class EditResult:
 
 ```
 src/
-├── server.py    # MCP server entry point
-├── tools.py     # 4 core MCP tools
-├── search.py    # Fuzzy search engine (rapidfuzz)
-├── semantic.py  # Tree-sitter integration + AST caching
-├── editor.py    # Search/replace engine (NOT line-based)
-└── session.py   # File management + caching
+├── server.py        # MCP server entry point
+├── tools.py         # 4 core MCP tools
+├── search_engine.py # Fuzzy search engine (rapidfuzz)
+├── tree_parser.py   # Tree-sitter integration + AST caching
+├── editor.py        # Search/replace engine (NOT line-based)
+├── file_access.py   # File management + caching
+└── config.py        # Environment-based configuration
 ```
 
 ## Implementation Phases

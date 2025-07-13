@@ -1,14 +1,16 @@
-# Largefile Vision
+# Vision
 
-## Problem Statement
+## Problem
 
-LLMs cannot work with large files due to context window limitations. When files exceed token limits, AI tools must choose between loading partial content (losing context) or failing entirely. This prevents effective AI-powered development on real-world codebases, generated code, large datasets, and complex configuration files.
+LLMs cannot work with large files due to context window limitations. Traditional approaches either fail completely or waste tokens loading irrelevant content. This prevents AI tools from working with production codebases, large datasets, and complex configuration files.
 
-The core challenge is enabling **surgical file operations** - precise navigation, targeted search, atomic edits, and contextual analysis - without requiring full file loading.
+## Solution Vision
 
-## Core Vision
-
-Enable LLMs to perform surgical operations on files of any size through intelligent navigation, targeted search, and precise editing, eliminating the context barrier that prevents AI tools from working with production codebases.
+Enable LLMs to perform precise operations on files of any size through:
+- **Intelligent navigation** with semantic structure analysis
+- **Targeted search** with fuzzy matching and context
+- **Search/replace editing** that eliminates line number confusion
+- **Progressive disclosure** from overview to specific content
 
 ## Technical Objectives
 
@@ -65,12 +67,12 @@ Enable LLMs to perform surgical operations on files of any size through intellig
 
 ### Implementation Strategy
 
-The server will dynamically choose the optimal approach based on file size:
-- **Small files (<10MB)**: Direct memory loading for simplicity
-- **Large files (>10MB)**: Memory-mapped access for efficiency
-- **Hybrid approach**: Start with memory loading, upgrade to mmap as needed
+The server dynamically chooses the optimal approach based on file size:
+- **Small files (<50MB)**: Direct memory loading with Tree-sitter AST caching
+- **Medium files (50-500MB)**: Memory-mapped access for efficiency  
+- **Large files (>500MB)**: Streaming processing with chunked access
 
-This flexibility ensures optimal performance while maintaining code simplicity.
+This three-tier strategy ensures optimal performance across the full range of file sizes.
 
 ## Scope Definition
 
