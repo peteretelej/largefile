@@ -1,3 +1,4 @@
+import mmap
 import os
 from pathlib import Path
 
@@ -38,13 +39,61 @@ def get_file_info(file_path: str) -> dict:
 
 
 def read_file_content(file_path: str, encoding: str = "utf-8") -> str:
-    """Read file content with specified encoding."""
-    try:
-        canonical_path = normalize_path(file_path)
+    """Read file content with specified encoding using optimal strategy."""
+    canonical_path = normalize_path(file_path)
+    file_info = get_file_info(canonical_path)
+    strategy = file_info["strategy"]
 
-        with open(canonical_path, encoding=encoding) as f:
+    if strategy == "memory":
+        return _read_file_memory(canonical_path, encoding)
+    elif strategy == "mmap":
+        return _read_file_mmap(canonical_path, encoding)
+    else:  # streaming
+        return _read_file_streaming(canonical_path, encoding)
+
+
+def _read_file_memory(file_path: str, encoding: str = "utf-8") -> str:
+    """Read file content into memory (for small files)."""
+    try:
+        with open(file_path, encoding=encoding) as f:
             return f.read()
-    except (FileNotFoundError, PermissionError) as e:
+    except (FileNotFoundError, PermissionError, IsADirectoryError) as e:
+        raise FileAccessError(f"Cannot read file {file_path}: {e}") from e
+    except UnicodeDecodeError as e:
+        raise FileAccessError(
+            f"Cannot decode file {file_path} with encoding {encoding}: {e}"
+        ) from e
+
+
+def _read_file_mmap(file_path: str, encoding: str = "utf-8") -> str:
+    """Read file content using memory mapping (for medium files)."""
+    try:
+        with open(file_path, "rb") as f:
+            with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as mm:
+                return mm.read().decode(encoding)
+    except (FileNotFoundError, PermissionError, IsADirectoryError) as e:
+        raise FileAccessError(f"Cannot read file {file_path}: {e}") from e
+    except UnicodeDecodeError as e:
+        raise FileAccessError(
+            f"Cannot decode file {file_path} with encoding {encoding}: {e}"
+        ) from e
+    except OSError:
+        # Fall back to regular reading if mmap fails
+        return _read_file_memory(file_path, encoding)
+
+
+def _read_file_streaming(file_path: str, encoding: str = "utf-8") -> str:
+    """Read file content in chunks (for very large files)."""
+    try:
+        chunks = []
+        with open(file_path, encoding=encoding) as f:
+            while True:
+                chunk = f.read(config.streaming_chunk_size)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+        return "".join(chunks)
+    except (FileNotFoundError, PermissionError, IsADirectoryError) as e:
         raise FileAccessError(f"Cannot read file {file_path}: {e}") from e
     except UnicodeDecodeError as e:
         raise FileAccessError(
@@ -53,13 +102,76 @@ def read_file_content(file_path: str, encoding: str = "utf-8") -> str:
 
 
 def read_file_lines(file_path: str, encoding: str = "utf-8") -> list[str]:
-    """Read file content as list of lines."""
-    try:
-        canonical_path = normalize_path(file_path)
+    """Read file content as list of lines using optimal strategy."""
+    canonical_path = normalize_path(file_path)
+    file_info = get_file_info(canonical_path)
+    strategy = file_info["strategy"]
 
-        with open(canonical_path, encoding=encoding) as f:
+    if strategy == "memory":
+        return _read_file_lines_memory(canonical_path, encoding)
+    elif strategy == "mmap":
+        return _read_file_lines_mmap(canonical_path, encoding)
+    else:  # streaming
+        return _read_file_lines_streaming(canonical_path, encoding)
+
+
+def _read_file_lines_memory(file_path: str, encoding: str = "utf-8") -> list[str]:
+    """Read file lines into memory (for small files)."""
+    try:
+        with open(file_path, encoding=encoding) as f:
             return f.readlines()
-    except (FileNotFoundError, PermissionError) as e:
+    except (FileNotFoundError, PermissionError, IsADirectoryError) as e:
+        raise FileAccessError(f"Cannot read file {file_path}: {e}") from e
+    except UnicodeDecodeError as e:
+        raise FileAccessError(
+            f"Cannot decode file {file_path} with encoding {encoding}: {e}"
+        ) from e
+
+
+def _read_file_lines_mmap(file_path: str, encoding: str = "utf-8") -> list[str]:
+    """Read file lines using memory mapping (for medium files)."""
+    try:
+        with open(file_path, "rb") as f:
+            with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as mm:
+                content = mm.read().decode(encoding)
+                return content.splitlines(keepends=True)
+    except (FileNotFoundError, PermissionError, IsADirectoryError) as e:
+        raise FileAccessError(f"Cannot read file {file_path}: {e}") from e
+    except UnicodeDecodeError as e:
+        raise FileAccessError(
+            f"Cannot decode file {file_path} with encoding {encoding}: {e}"
+        ) from e
+    except OSError:
+        # Fall back to regular reading if mmap fails
+        return _read_file_lines_memory(file_path, encoding)
+
+
+def _read_file_lines_streaming(file_path: str, encoding: str = "utf-8") -> list[str]:
+    """Read file lines in chunks (for very large files)."""
+    try:
+        lines = []
+        buffer = ""
+
+        with open(file_path, encoding=encoding) as f:
+            while True:
+                chunk = f.read(config.streaming_chunk_size)
+                if not chunk:
+                    # Handle remaining buffer
+                    if buffer:
+                        lines.append(buffer)
+                    break
+
+                buffer += chunk
+                # Split on newlines but keep the last incomplete line
+                chunk_lines = buffer.split("\n")
+                buffer = chunk_lines[-1]  # Keep incomplete line
+
+                # Add complete lines (with newlines restored)
+                for line in chunk_lines[:-1]:
+                    lines.append(line + "\n")
+
+        return lines
+    except (FileNotFoundError, PermissionError, IsADirectoryError) as e:
         raise FileAccessError(f"Cannot read file {file_path}: {e}") from e
     except UnicodeDecodeError as e:
         raise FileAccessError(

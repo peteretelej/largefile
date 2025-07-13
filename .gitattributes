@@ -1,0 +1,20 @@
+# Ignore test data files from language detection and diffs
+tests/test_data/** linguist-documentation
+tests/test_data/** linguist-generated=true
+tests/test_data/** -diff
+
+# Ensure our actual source code is detected
+src/** linguist-language=Python
+tests/**/*.py linguist-language=Python
+!tests/test_data/**
+
+# Documentation
+docs/**/*.md linguist-documentation
+README.md linguist-documentation
+*.md linguist-documentation
+
+# Configuration files
+*.yml linguist-language=YAML
+*.yaml linguist-language=YAML
+*.toml linguist-language=TOML
+*.json linguist-language=JSON

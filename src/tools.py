@@ -19,6 +19,7 @@ from .tree_parser import (
     get_semantic_chunk,
     parse_file_content,
 )
+from .utils import truncate_line
 
 
 def handle_tool_errors(func: Callable) -> Callable:
@@ -185,10 +186,7 @@ def search_content(
             if i <= len(lines):
                 context_after.append(lines[i - 1].rstrip("\n\r"))
 
-        match_content = match.content
-        truncated = len(match_content) > config.truncate_length
-        if truncated:
-            match_content = match_content[: config.truncate_length] + "..."
+        match_content, truncated = truncate_line(match.content)
 
         # Get semantic context using tree-sitter if available
         if tree:
