@@ -8,13 +8,15 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        python-version: ["3.10", "3.11", "3.12"]
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.11"]
 
     steps:
-    - uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v4
 
     - name: Install uv
       uses: astral-sh/setup-uv@v3
@@ -22,29 +24,84 @@ jobs:
         version: "latest"
 
     - name: Set up Python ${{ matrix.python-version }}
-      run: uv python install ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
 
     - name: Install dependencies
-      run: |
-        uv sync --dev
+      run: uv sync --dev
 
-    - name: Lint with ruff
-      run: |
-        uv run ruff check .
-        uv run ruff format --check .
+    - name: Run tests
+      run: uv run pytest -v --tb=short
 
-    - name: Type check with mypy
-      run: |
-        uv run mypy src
+    - name: Run type checking
+      run: uv run mypy src
 
-    - name: Test with pytest
+    - name: Run linting
+      run: uv run ruff check .
+
+    - name: Check formatting
+      run: uv run ruff format --check
+
+  test-server-startup:
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+
+    - name: Install dependencies
+      run: uv sync --dev
+
+    - name: Test MCP server startup
       run: |
-        uv run pytest --cov=src --cov-report=xml --cov-report=term-missing
+        timeout 3s uv run largefile-mcp || exit_code=$?
+        if [ "${exit_code:-0}" -eq 124 ]; then
+          echo "✓ Server started successfully (timeout expected)"
+          exit 0
+        elif [ "${exit_code:-0}" -eq 0 ]; then
+          echo "✓ Server started and exited cleanly"
+          exit 0
+        else
+          echo "✗ Server failed to start (exit code: ${exit_code:-0})"
+          exit 1
+        fi
+
+  coverage:
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+
+    - name: Install dependencies
+      run: uv sync --dev
+
+    - name: Run coverage
+      run: uv run pytest --cov=src --cov-report=xml --cov-report=term
 
     - name: Upload coverage to Codecov
-      if: matrix.python-version == '3.11'
       uses: codecov/codecov-action@v4
       with:
-        token: ${{ secrets.CODECOV_TOKEN }}
         file: ./coverage.xml
         fail_ci_if_error: false
+      env:
+        CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
