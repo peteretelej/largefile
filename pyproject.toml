@@ -26,6 +26,7 @@ classifiers = [
 dependencies = [
     "click>=8.2.1",
     "mcp>=1.10.1",
+    "rapidfuzz>=3.0.0",
 ]
 
 [project.urls]
