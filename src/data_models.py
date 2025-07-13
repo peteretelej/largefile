@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from typing import List, Optional, Dict, Any
 
 
 @dataclass
@@ -8,8 +7,8 @@ class FileOverview:
     file_size: int
     encoding: str
     has_long_lines: bool
-    outline: List['OutlineItem']
-    search_hints: List[str]
+    outline: list["OutlineItem"]
+    search_hints: list[str]
 
 
 @dataclass
@@ -18,7 +17,7 @@ class OutlineItem:
     type: str
     line_number: int
     end_line: int
-    children: List['OutlineItem']
+    children: list["OutlineItem"]
     line_count: int
 
 
@@ -26,12 +25,12 @@ class OutlineItem:
 class SearchResult:
     line_number: int
     match: str
-    context_before: List[str]
-    context_after: List[str]
+    context_before: list[str]
+    context_after: list[str]
     semantic_context: str
     similarity_score: float
     truncated: bool
-    submatches: List[Dict[str, int]]
+    submatches: list[dict[str, int]]
 
 
 @dataclass
@@ -42,4 +41,4 @@ class EditResult:
     line_number: int
     similarity_used: float
     match_type: str = "exact"
-    backup_created: Optional[str] = None
+    backup_created: str | None = None
