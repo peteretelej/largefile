@@ -3,15 +3,22 @@ from pathlib import Path
 from typing import Any
 
 from .config import config
-from .data_models import FileOverview, OutlineItem, SearchResult
+from .data_models import FileOverview, SearchResult
 from .editor import atomic_edit_file
-from .exceptions import EditError, FileAccessError, SearchError
+from .exceptions import EditError, FileAccessError, SearchError, TreeSitterError
 from .file_access import (
     get_file_info,
     normalize_path,
+    read_file_content,
     read_file_lines,
 )
 from .search_engine import search_file
+from .tree_parser import (
+    extract_semantic_context,
+    generate_outline,
+    get_semantic_chunk,
+    parse_file_content,
+)
 
 
 def handle_tool_errors(func: Callable) -> Callable:
@@ -24,6 +31,11 @@ def handle_tool_errors(func: Callable) -> Callable:
             return {
                 "error": f"File access failed: {e}",
                 "suggestion": "Check file path and permissions",
+            }
+        except TreeSitterError as e:
+            return {
+                "error": f"Semantic parsing failed: {e}",
+                "suggestion": "File will use text-based analysis",
             }
         except SearchError as e:
             return {
@@ -66,16 +78,22 @@ def get_overview(absolute_file_path: str, encoding: str = "utf-8") -> dict:
     file_info = get_file_info(canonical_path)
 
     lines = read_file_lines(canonical_path, encoding)
+    content = read_file_content(canonical_path, encoding)
 
     has_long_lines = any(len(line) > config.max_line_length for line in lines)
 
-    outline = []
-    search_hints = []
+    # Use tree-sitter for outline generation if available
+    try:
+        outline = generate_outline(canonical_path, content)
+    except Exception:
+        # Fall back to simple outline
+        outline = []
 
+    # Generate search hints based on file type
     file_ext = Path(canonical_path).suffix.lower()
     if file_ext == ".py":
         search_hints = ["def ", "class ", "import ", "from "]
-    elif file_ext in [".js", ".ts"]:
+    elif file_ext in [".js", ".ts", ".jsx", ".tsx"]:
         search_hints = ["function ", "class ", "const ", "import "]
     elif file_ext == ".go":
         search_hints = ["func ", "type ", "import ", "package "]
@@ -83,22 +101,6 @@ def get_overview(absolute_file_path: str, encoding: str = "utf-8") -> dict:
         search_hints = ["fn ", "struct ", "impl ", "use "]
     else:
         search_hints = ["TODO", "FIXME", "NOTE", "HACK"]
-
-    for i, line in enumerate(lines[:50], 1):
-        line_stripped = line.strip()
-        if any(hint.strip() in line_stripped for hint in search_hints):
-            outline.append(
-                OutlineItem(
-                    name=line_stripped[:50] + "..."
-                    if len(line_stripped) > 50
-                    else line_stripped,
-                    type="definition",
-                    line_number=i,
-                    end_line=i,
-                    children=[],
-                    line_count=1,
-                )
-            )
 
     overview = FileOverview(
         line_count=len(lines),
@@ -159,6 +161,15 @@ def search_content(
     matches = search_file(canonical_path, pattern, encoding, fuzzy)
 
     lines = read_file_lines(canonical_path, encoding)
+    content = read_file_content(canonical_path, encoding)
+
+    # Try to parse with tree-sitter for semantic context
+    tree = None
+    try:
+        tree = parse_file_content(canonical_path, content)
+    except Exception:
+        # Tree-sitter not available or failed, use simple context
+        pass
 
     results = []
     for match in matches[:max_results]:
@@ -179,7 +190,14 @@ def search_content(
         if truncated:
             match_content = match_content[: config.truncate_length] + "..."
 
-        semantic_context = f"Line {line_num}"
+        # Get semantic context using tree-sitter if available
+        if tree:
+            try:
+                semantic_context = extract_semantic_context(tree, line_num)
+            except Exception:
+                semantic_context = f"Line {line_num}"
+        else:
+            semantic_context = f"Line {line_num}"
 
         result = SearchResult(
             line_number=line_num,
@@ -237,8 +255,28 @@ def read_content(
     canonical_path = normalize_path(absolute_file_path)
 
     lines = read_file_lines(canonical_path, encoding)
+    file_content = read_file_content(canonical_path, encoding)
 
     if isinstance(target, int):
+        # Use semantic chunking if mode is "semantic" and tree-sitter is available
+        if mode == "semantic":
+            try:
+                chunk_content, start_line, end_line = get_semantic_chunk(
+                    canonical_path, file_content, target
+                )
+                return {
+                    "content": chunk_content,
+                    "start_line": start_line,
+                    "end_line": end_line,
+                    "total_lines": len(lines),
+                    "mode": mode,
+                    "target_type": "line_number",
+                }
+            except Exception:
+                # Fall back to line-based reading
+                pass
+
+        # Default line-based reading
         start_line = max(1, target)
         end_line = min(len(lines), start_line + 20)
 

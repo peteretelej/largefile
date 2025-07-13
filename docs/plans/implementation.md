@@ -20,8 +20,8 @@
 - [x] Clear, structured tool descriptions (following diffchunks pattern)
 - [x] Pure functions - predictable inputs/outputs
 - [x] Integration test framework for end-to-end tool testing
-- [ ] Run scripts/pre-push to validate implementation
-- [ ] Review & Update work plan
+- [x] Run scripts/pre-push to validate implementation
+- [x] Review & Update work plan
 
 ### Phase 3: Search/Replace Engine
 
@@ -34,12 +34,12 @@
 
 ### Phase 4: Tree-sitter Integration
 
-- [ ] AST parsing for supported languages (Python, JS, Go, Rust)
-- [ ] Semantic context extraction
-- [ ] Hierarchical outline generation
-- [ ] Graceful degradation when Tree-sitter unavailable (clear error messages)
-- [ ] Run scripts/pre-push to validate implementation
-- [ ] Review & Update work plan
+- [x] AST parsing for supported languages (Python, JS, Go, Rust)
+- [x] Semantic context extraction
+- [x] Hierarchical outline generation
+- [x] Graceful degradation when Tree-sitter unavailable (clear error messages)
+- [x] Run scripts/pre-push to validate implementation
+- [x] Review & Update work plan
 
 ### Phase 5: Performance & Polish
 
@@ -87,7 +87,7 @@ LARGEFILE_TRUNCATE_LENGTH=500          # Display length
 def choose_file_strategy(file_size: int) -> str:
     memory_threshold_mb = int(os.getenv('LARGEFILE_MEMORY_THRESHOLD_MB', '50'))
     mmap_threshold_mb = int(os.getenv('LARGEFILE_MMAP_THRESHOLD_MB', '500'))
-    
+
     memory_threshold = memory_threshold_mb * 1024 * 1024
     mmap_threshold = mmap_threshold_mb * 1024 * 1024
 
@@ -515,8 +515,8 @@ class Config:
     def memory_threshold(self) -> int:
         """Memory threshold in bytes."""
         return self.memory_threshold_mb * 1024 * 1024
-    
-    @property 
+
+    @property
     def mmap_threshold(self) -> int:
         """Memory mapping threshold in bytes."""
         return self.mmap_threshold_mb * 1024 * 1024
