@@ -1,5 +1,6 @@
 import os
 from dataclasses import dataclass
+from pathlib import Path
 
 
 @dataclass
@@ -16,7 +17,9 @@ class Config:
     context_lines: int = int(os.getenv("LARGEFILE_CONTEXT_LINES", "2"))
 
     streaming_chunk_size: int = int(os.getenv("LARGEFILE_STREAMING_CHUNK_SIZE", "8192"))
-    backup_dir: str = os.getenv("LARGEFILE_BACKUP_DIR", ".largefile_backups")
+    backup_dir: str = os.getenv(
+        "LARGEFILE_BACKUP_DIR", str(Path.home() / ".largefile" / "backups")
+    )
 
     enable_tree_sitter: bool = (
         os.getenv("LARGEFILE_ENABLE_TREE_SITTER", "true").lower() == "true"

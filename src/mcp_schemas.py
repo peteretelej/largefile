@@ -131,7 +131,7 @@ def get_tool_schemas() -> list[types.Tool]:
 
 def register_tool_handlers(server, tools_module):
     """Register tool handlers with the MCP server."""
-    
+
     @server.list_tools()
     async def list_tools() -> list[types.Tool]:
         """List available tools."""

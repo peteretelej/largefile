@@ -48,18 +48,23 @@ def get_language_parser(file_extension: str) -> Any | None:
         language_capsule = None
         if language_name == "python":
             import tree_sitter_python
+
             language_capsule = tree_sitter_python.language()
         elif language_name == "javascript":
             import tree_sitter_javascript
+
             language_capsule = tree_sitter_javascript.language()
         elif language_name == "typescript":
             import tree_sitter_typescript
+
             language_capsule = tree_sitter_typescript.language_typescript()
         elif language_name == "rust":
             import tree_sitter_rust
+
             language_capsule = tree_sitter_rust.language()
         elif language_name == "go":
             import tree_sitter_go
+
             language_capsule = tree_sitter_go.language()
         else:
             return None
