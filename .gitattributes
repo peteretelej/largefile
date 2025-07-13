@@ -6,7 +6,6 @@ tests/test_data/** -diff
 # Ensure our actual source code is detected
 src/** linguist-language=Python
 tests/**/*.py linguist-language=Python
-!tests/test_data/**
 
 # Documentation
 docs/**/*.md linguist-documentation
