@@ -44,31 +44,29 @@ def get_language_parser(file_extension: str) -> Any | None:
     try:
         import tree_sitter
 
-        # Import the specific language module
+        # Import the specific language module and get language capsule
+        language_capsule = None
         if language_name == "python":
             import tree_sitter_python
-
-            language = tree_sitter_python.language()
+            language_capsule = tree_sitter_python.language()
         elif language_name == "javascript":
             import tree_sitter_javascript
-
-            language = tree_sitter_javascript.language()
+            language_capsule = tree_sitter_javascript.language()
         elif language_name == "typescript":
             import tree_sitter_typescript
-
-            language = tree_sitter_typescript.language_typescript()
+            language_capsule = tree_sitter_typescript.language_typescript()
         elif language_name == "rust":
             import tree_sitter_rust
-
-            language = tree_sitter_rust.language()
+            language_capsule = tree_sitter_rust.language()
         elif language_name == "go":
             import tree_sitter_go
-
-            language = tree_sitter_go.language()
+            language_capsule = tree_sitter_go.language()
         else:
             return None
 
-        parser = tree_sitter.Parser(language)  # type: ignore
+        # Create Language object from capsule and parser
+        language = tree_sitter.Language(language_capsule)
+        parser = tree_sitter.Parser(language)
         return parser
 
     except ImportError as e:
