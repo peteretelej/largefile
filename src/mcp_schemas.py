@@ -24,123 +24,110 @@ def get_tool_schemas() -> list[types.Tool]:
     return [
         types.Tool(
             name="get_overview",
-            description="Get file structure with Tree-sitter semantic analysis for large files. Use this as your FIRST STEP when working with any file over 1000 lines or when you need to understand file structure before targeted operations. CRITICAL: You must use an absolute file path - relative paths will fail. DO NOT attempt to read large files directly as they exceed context limits and waste tokens on irrelevant content. This tool provides the roadmap for systematic file exploration and suggests optimal search patterns for the specific file type.",
+            description="Analyze file structure and generate semantic outline. Use before working with large files to understand organization and find optimal search patterns. Returns file stats, hierarchical outline, and suggested search terms. Requires absolute file paths only.",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "absolute_file_path": {
                         "type": "string",
-                        "description": "Absolute path to the file",
-                    },
-                    "encoding": {
-                        "type": "string",
-                        "description": "File encoding",
-                        "default": "utf-8",
+                        "description": "Absolute path to target file",
                     },
                 },
                 "required": ["absolute_file_path"],
             },
+            annotations=types.ToolAnnotations(readOnlyHint=True),
         ),
         types.Tool(
             name="search_content",
-            description="Find patterns in large files with fuzzy matching and semantic context. Use this when you need to locate specific functions, classes, patterns, or text within files that are too large for direct reading. CRITICAL: You must use an absolute file path - relative paths will fail. DO NOT attempt to grep or search large files directly - use this tool for efficient pattern location with context. Essential for finding all instances of functions, variables, TODO comments, error patterns, or any text within large codebases. Use fuzzy matching to handle formatting variations and typos.",
+            description="Search for text patterns in large files with fuzzy matching. Use when locating functions, classes, variables, or specific text within files. Returns ranked results with context and similarity scores. Requires absolute file paths only.",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "absolute_file_path": {
                         "type": "string",
-                        "description": "Absolute path to the file",
+                        "description": "Absolute path to target file",
                     },
-                    "pattern": {"type": "string", "description": "Search pattern"},
-                    "encoding": {
+                    "pattern": {
                         "type": "string",
-                        "description": "File encoding",
-                        "default": "utf-8",
+                        "description": "Text pattern to find",
                     },
                     "max_results": {
                         "type": "integer",
-                        "description": "Maximum number of results",
+                        "description": "Maximum results to return (1-100)",
                         "default": 20,
                     },
                     "context_lines": {
                         "type": "integer",
-                        "description": "Context lines around match",
+                        "description": "Context lines before/after match",
                         "default": 2,
                     },
                     "fuzzy": {
                         "type": "boolean",
-                        "description": "Enable fuzzy matching",
+                        "description": "Enable similarity-based matching",
                         "default": True,
                     },
                 },
                 "required": ["absolute_file_path", "pattern"],
             },
+            annotations=types.ToolAnnotations(readOnlyHint=True),
         ),
         types.Tool(
             name="read_content",
-            description="Read targeted content from large files using semantic chunking instead of arbitrary line ranges. Use this when you need to examine specific functions, classes, or code sections after locating them with search_content. CRITICAL: You must use an absolute file path - relative paths will fail. DO NOT attempt to read large files directly - use this tool to get manageable, semantically complete chunks. Essential for understanding code context, examining function implementations, or reading specific sections without loading entire files. Use semantic mode to get complete functions/classes instead of cut-off arbitrary ranges.",
+            description="Read specific content from large files using semantic chunking. Use after locating content with search to examine complete functions, classes, or code sections. Returns semantically complete blocks rather than arbitrary line ranges. Requires absolute file paths only.",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "absolute_file_path": {
                         "type": "string",
-                        "description": "Absolute path to the file",
+                        "description": "Absolute path to target file",
                     },
                     "target": {
                         "oneOf": [{"type": "integer"}, {"type": "string"}],
-                        "description": "Line number or search pattern",
-                    },
-                    "encoding": {
-                        "type": "string",
-                        "description": "File encoding",
-                        "default": "utf-8",
+                        "description": "Line number or search pattern to locate content",
                     },
                     "mode": {
                         "type": "string",
-                        "description": "Reading mode",
+                        "description": "Content extraction method",
                         "default": "lines",
                         "enum": ["lines", "semantic"],
                     },
                 },
                 "required": ["absolute_file_path", "target"],
             },
+            annotations=types.ToolAnnotations(readOnlyHint=True),
         ),
         types.Tool(
             name="edit_content",
-            description="PRIMARY EDITING METHOD for large files using search/replace blocks instead of error-prone line-based editing. Use this for ALL file modifications when working with large files - never attempt manual line-based edits. CRITICAL: You must use an absolute file path - relative paths will fail. ALWAYS use preview=True first to verify changes before applying. This tool eliminates LLM line number confusion and handles whitespace variations with fuzzy matching. Essential for refactoring, renaming, bug fixes, and any code modifications. Creates automatic backups before all changes for safety.",
+            description="Modify large files using search and replace operations with fuzzy matching. Use with caution as it modifies file content. Returns diff preview showing changes and creates automatic backups. Requires absolute file paths only.",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "absolute_file_path": {
                         "type": "string",
-                        "description": "Absolute path to the file",
+                        "description": "Absolute path to target file",
                     },
                     "search_text": {
                         "type": "string",
-                        "description": "Text to find and replace",
+                        "description": "Exact text to find and replace",
                     },
                     "replace_text": {
                         "type": "string",
-                        "description": "Replacement text",
-                    },
-                    "encoding": {
-                        "type": "string",
-                        "description": "File encoding",
-                        "default": "utf-8",
+                        "description": "New text content",
                     },
                     "fuzzy": {
                         "type": "boolean",
-                        "description": "Enable fuzzy matching",
+                        "description": "Enable similarity-based text matching",
                         "default": True,
                     },
                     "preview": {
                         "type": "boolean",
-                        "description": "Show preview without making changes",
+                        "description": "Show changes without applying them",
                         "default": True,
                     },
                 },
                 "required": ["absolute_file_path", "search_text", "replace_text"],
             },
+            annotations=types.ToolAnnotations(destructiveHint=True),
         ),
     ]
 

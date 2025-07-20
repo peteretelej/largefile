@@ -22,19 +22,17 @@ Analyze file structure with semantic outline and search hints.
 **Signature:**
 ```python
 def get_overview(
-    absolute_file_path: str,
-    encoding: str = "utf-8"
+    absolute_file_path: str
 ) -> FileOverview
 ```
 
 **Parameters:**
 - `absolute_file_path`: Absolute path to the file (required)
-- `encoding`: File encoding (default: "utf-8")
 
 **Returns:** `FileOverview` object with:
 - `line_count`: Total lines in file
 - `file_size`: File size in bytes
-- `encoding`: Detected or specified encoding
+- `encoding`: Auto-detected file encoding
 - `has_long_lines`: True if any line exceeds 1000 characters
 - `outline`: Hierarchical structure via Tree-sitter (if supported)
 - `search_hints`: Suggested search patterns for exploration
@@ -58,8 +56,7 @@ def search_content(
     pattern: str,
     max_results: int = 20,
     context_lines: int = 2,
-    fuzzy: bool = True,
-    encoding: str = "utf-8"
+    fuzzy: bool = True
 ) -> List[SearchResult]
 ```
 
@@ -69,7 +66,6 @@ def search_content(
 - `max_results`: Maximum number of results to return (default: 20)
 - `context_lines`: Number of context lines before/after match (default: 2)
 - `fuzzy`: Enable fuzzy matching with similarity scoring (default: True)
-- `encoding`: File encoding (default: "utf-8")
 
 **Returns:** List of `SearchResult` objects with:
 - `line_number`: Line where match was found
@@ -100,8 +96,7 @@ Read targeted content by line number or pattern with semantic chunking.
 def read_content(
     absolute_file_path: str,
     target: Union[int, str],
-    mode: str = "lines",
-    encoding: str = "utf-8"
+    mode: str = "lines"
 ) -> str
 ```
 
@@ -109,7 +104,6 @@ def read_content(
 - `absolute_file_path`: Absolute path to the file (required)
 - `target`: Line number (int) or search pattern (str) to locate content (required)
 - `mode`: Reading mode - "lines", "semantic", or "function" (default: "lines")
-- `encoding`: File encoding (default: "utf-8")
 
 **Reading Modes:**
 - `"lines"`: Read specific line number or lines around pattern match
@@ -141,8 +135,7 @@ def edit_content(
     search_text: str,
     replace_text: str,
     fuzzy: bool = True,
-    preview: bool = True,
-    encoding: str = "utf-8"
+    preview: bool = True
 ) -> EditResult
 ```
 
@@ -152,7 +145,6 @@ def edit_content(
 - `replace_text`: Replacement text (required)
 - `fuzzy`: Enable fuzzy matching for search_text (default: True)
 - `preview`: Show preview without making changes (default: True)
-- `encoding`: File encoding (default: "utf-8")
 
 **Returns:** `EditResult` object with:
 - `success`: True if operation succeeded

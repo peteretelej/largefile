@@ -186,7 +186,7 @@ def edit_content(
 class FileOverview:
     line_count: int
     file_size: int
-    encoding: str
+    encoding: str  # Auto-detected file encoding
     has_long_lines: bool  # >1000 chars (triggers truncation)
     outline: List[OutlineItem]  # Hierarchical via Tree-sitter
     search_hints: List[str]  # Common patterns for exploration
@@ -281,7 +281,7 @@ src/
 
 ## Scope
 
-**In**: UTF-8 text files, **search/replace editing**, fuzzy pattern matching, semantic structure, hierarchical navigation  
+**In**: Text files (auto-detected encoding), **search/replace editing**, fuzzy pattern matching, semantic structure, hierarchical navigation  
 **Out**: Binary files, multi-file ops, collaboration, version control, **line-based editing**
 
 ## LLM Usage Patterns

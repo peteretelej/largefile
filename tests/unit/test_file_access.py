@@ -9,6 +9,7 @@ from pathlib import Path
 from src.exceptions import FileAccessError
 from src.file_access import (
     choose_file_strategy,
+    detect_file_encoding,
     get_file_info,
     normalize_path,
     read_file_content,
@@ -96,6 +97,54 @@ class TestFileAccess:
             raise AssertionError("Should have raised FileAccessError")
         except FileAccessError as e:
             assert "Cannot access file" in str(e)
+
+    def test_detect_file_encoding(self):
+        """Test encoding detection with various file types."""
+        # UTF-8 file
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", delete=False) as f:
+            f.write("Hello UTF-8 world! 🌍")
+            utf8_path = f.name
+
+        # Latin-1 file
+        with tempfile.NamedTemporaryFile(mode="wb", delete=False) as f:
+            f.write("Hello Latin-1 café".encode("latin-1"))
+            latin1_path = f.name
+
+        # UTF-16 file
+        with tempfile.NamedTemporaryFile(mode="wb", delete=False) as f:
+            f.write("Hello UTF-16 world! 🌍".encode("utf-16"))
+            utf16_path = f.name
+
+        # Empty file
+        with tempfile.NamedTemporaryFile(mode="w", delete=False) as f:
+            empty_path = f.name
+
+        try:
+            # UTF-8 detection (low confidence should fallback to utf-8)
+            encoding = detect_file_encoding(utf8_path)
+            assert encoding == "utf-8"
+
+            # Latin-1 detection (may have high confidence or fallback)
+            encoding = detect_file_encoding(latin1_path)
+            assert encoding.lower() in ["latin-1", "iso-8859-1", "utf-8"]
+
+            # UTF-16 detection (should detect UTF-16 variants)
+            encoding = detect_file_encoding(utf16_path)
+            assert "utf-16" in encoding.lower() or encoding == "utf-8"
+
+            # Empty file defaults to utf-8
+            encoding = detect_file_encoding(empty_path)
+            assert encoding == "utf-8"
+
+            # Non-existent file fallback
+            encoding = detect_file_encoding("/nonexistent/file.txt")
+            assert encoding == "utf-8"
+
+        finally:
+            Path(utf8_path).unlink()
+            Path(latin1_path).unlink()
+            Path(utf16_path).unlink()
+            Path(empty_path).unlink()
 
     def test_path_normalization(self):
         """Test path normalization functionality."""

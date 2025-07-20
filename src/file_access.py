@@ -2,6 +2,8 @@ import mmap
 import os
 from pathlib import Path
 
+import chardet
+
 from .config import config
 from .exceptions import FileAccessError
 
@@ -22,6 +24,33 @@ def choose_file_strategy(file_size: int) -> str:
         return "streaming"
 
 
+def detect_file_encoding(file_path: str) -> str:
+    """Detect file encoding using chardet with utf-8 fallback."""
+    try:
+        with open(file_path, "rb") as f:
+            sample = f.read(65536)  # 64KB sample
+
+        if not sample:
+            return "utf-8"
+
+        result = chardet.detect(sample)
+
+        # If chardet detects ASCII, try UTF-8 first since ASCII is subset of UTF-8
+        # and UTF-8 is more robust for files that might have non-ASCII later
+        encoding = result.get("encoding") if result else None
+        if encoding and encoding.lower() == "ascii":
+            return "utf-8"
+
+        # Use detection only if confidence is reasonable (>= 0.7)
+        if result and result.get("confidence", 0) >= 0.7:
+            return result["encoding"] or "utf-8"
+        else:
+            return "utf-8"
+
+    except Exception:
+        return "utf-8"
+
+
 def get_file_info(file_path: str) -> dict:
     """Get basic file information."""
     try:
@@ -38,11 +67,12 @@ def get_file_info(file_path: str) -> dict:
         raise FileAccessError(f"Cannot access file {file_path}: {e}") from e
 
 
-def read_file_content(file_path: str, encoding: str = "utf-8") -> str:
-    """Read file content with specified encoding using optimal strategy."""
+def read_file_content(file_path: str) -> str:
+    """Read file content using auto-detected encoding and optimal strategy."""
     canonical_path = normalize_path(file_path)
     file_info = get_file_info(canonical_path)
     strategy = file_info["strategy"]
+    encoding = detect_file_encoding(canonical_path)
 
     if strategy == "memory":
         return _read_file_memory(canonical_path, encoding)
@@ -101,11 +131,12 @@ def _read_file_streaming(file_path: str, encoding: str = "utf-8") -> str:
         ) from e
 
 
-def read_file_lines(file_path: str, encoding: str = "utf-8") -> list[str]:
-    """Read file content as list of lines using optimal strategy."""
+def read_file_lines(file_path: str) -> list[str]:
+    """Read file content as list of lines using auto-detected encoding and optimal strategy."""
     canonical_path = normalize_path(file_path)
     file_info = get_file_info(canonical_path)
     strategy = file_info["strategy"]
+    encoding = detect_file_encoding(canonical_path)
 
     if strategy == "memory":
         return _read_file_lines_memory(canonical_path, encoding)
@@ -179,10 +210,16 @@ def _read_file_lines_streaming(file_path: str, encoding: str = "utf-8") -> list[
         ) from e
 
 
-def write_file_content(file_path: str, content: str, encoding: str = "utf-8") -> None:
-    """Write content to file atomically using temp file + rename."""
+def write_file_content(file_path: str, content: str) -> None:
+    """Write content to file atomically using temp file + rename with auto-detected encoding."""
     canonical_path = normalize_path(file_path)
     temp_path = f"{canonical_path}.tmp"
+
+    # Detect encoding from existing file, or default to utf-8 for new files
+    if os.path.exists(canonical_path):
+        encoding = detect_file_encoding(canonical_path)
+    else:
+        encoding = "utf-8"
 
     try:
         # Clean up any existing temp file first

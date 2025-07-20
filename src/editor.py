@@ -119,16 +119,15 @@ def replace_content(
     file_path: str,
     search_text: str,
     replace_text: str,
-    encoding: str = "utf-8",
     fuzzy: bool = True,
     preview: bool = True,
 ) -> EditResult:
-    """Replace content using search/replace. Returns clear results or errors."""
+    """Replace content using search/replace with auto-detected encoding. Returns clear results or errors."""
     canonical_path = normalize_path(file_path)
 
     # Read original content
     try:
-        original_content = read_file_content(canonical_path, encoding)
+        original_content = read_file_content(canonical_path)
     except Exception as e:
         raise EditError(f"Cannot read {file_path}: {e}") from e
 
@@ -200,7 +199,7 @@ def replace_content(
         backup_path = create_backup(canonical_path)
 
         # Write new content atomically
-        write_file_content(canonical_path, modified_content, encoding)
+        write_file_content(canonical_path, modified_content)
 
         result.backup_created = backup_path
         return result
@@ -228,11 +227,10 @@ def atomic_edit_file(
     file_path: str,
     search_text: str,
     replace_text: str,
-    encoding: str = "utf-8",
     fuzzy: bool = True,
     preview: bool = True,
 ) -> EditResult:
-    """PRIMARY EDITING METHOD using search/replace blocks with validation."""
+    """PRIMARY EDITING METHOD using search/replace blocks with validation and auto-detected encoding."""
     # Validate parameters
     validate_search_replace_params(search_text, replace_text)
 
@@ -250,6 +248,4 @@ def atomic_edit_file(
         raise EditError(f"File is not writable: {file_path}")
 
     # Perform the edit operation
-    return replace_content(
-        canonical_path, search_text, replace_text, encoding, fuzzy, preview
-    )
+    return replace_content(canonical_path, search_text, replace_text, fuzzy, preview)
