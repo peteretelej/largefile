@@ -2,6 +2,8 @@ import mmap
 import os
 from pathlib import Path
 
+import chardet
+
 from .config import config
 from .exceptions import FileAccessError
 
@@ -20,6 +22,22 @@ def choose_file_strategy(file_size: int) -> str:
         return "mmap"
     else:
         return "streaming"
+
+
+def detect_file_encoding(file_path: str) -> str:
+    """Detect file encoding using chardet with utf-8 fallback."""
+    try:
+        with open(file_path, 'rb') as f:
+            sample = f.read(65536)  # 64KB sample
+            
+        if not sample:
+            return 'utf-8'
+            
+        result = chardet.detect(sample)
+        return result['encoding'] or 'utf-8'
+            
+    except Exception:
+        return 'utf-8'
 
 
 def get_file_info(file_path: str) -> dict:

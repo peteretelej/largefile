@@ -24,6 +24,7 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
+    "chardet>=5.0.0",
     "click>=8.2.1",
     "mcp>=1.10.1",
     "rapidfuzz>=3.0.0",
