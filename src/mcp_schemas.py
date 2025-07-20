@@ -32,11 +32,6 @@ def get_tool_schemas() -> list[types.Tool]:
                         "type": "string",
                         "description": "Absolute path to the file",
                     },
-                    "encoding": {
-                        "type": "string",
-                        "description": "File encoding",
-                        "default": "utf-8",
-                    },
                 },
                 "required": ["absolute_file_path"],
             },
@@ -52,11 +47,6 @@ def get_tool_schemas() -> list[types.Tool]:
                         "description": "Absolute path to the file",
                     },
                     "pattern": {"type": "string", "description": "Search pattern"},
-                    "encoding": {
-                        "type": "string",
-                        "description": "File encoding",
-                        "default": "utf-8",
-                    },
                     "max_results": {
                         "type": "integer",
                         "description": "Maximum number of results",
@@ -90,11 +80,6 @@ def get_tool_schemas() -> list[types.Tool]:
                         "oneOf": [{"type": "integer"}, {"type": "string"}],
                         "description": "Line number or search pattern",
                     },
-                    "encoding": {
-                        "type": "string",
-                        "description": "File encoding",
-                        "default": "utf-8",
-                    },
                     "mode": {
                         "type": "string",
                         "description": "Reading mode",
@@ -122,11 +107,6 @@ def get_tool_schemas() -> list[types.Tool]:
                     "replace_text": {
                         "type": "string",
                         "description": "Replacement text",
-                    },
-                    "encoding": {
-                        "type": "string",
-                        "description": "File encoding",
-                        "default": "utf-8",
                     },
                     "fuzzy": {
                         "type": "boolean",

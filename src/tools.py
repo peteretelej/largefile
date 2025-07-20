@@ -7,6 +7,7 @@ from .data_models import FileOverview, SearchResult
 from .editor import atomic_edit_file
 from .exceptions import EditError, FileAccessError, SearchError, TreeSitterError
 from .file_access import (
+    detect_file_encoding,
     get_file_info,
     normalize_path,
     read_file_content,
@@ -58,8 +59,8 @@ def handle_tool_errors(func: Callable) -> Callable:
 
 
 @handle_tool_errors
-def get_overview(absolute_file_path: str, encoding: str = "utf-8") -> dict:
-    """Get file structure with basic analysis.
+def get_overview(absolute_file_path: str) -> dict:
+    """Get file structure with basic analysis using auto-detected encoding.
 
     Provides file metadata, line count, and basic structure analysis.
     Detects long lines for truncation and returns search hints for efficient
@@ -70,16 +71,16 @@ def get_overview(absolute_file_path: str, encoding: str = "utf-8") -> dict:
 
     Parameters:
     - absolute_file_path: Absolute path to the file
-    - encoding: File encoding (utf-8, latin-1, etc.)
 
     Returns:
-    - FileOverview with line count, file size, encoding info, and search hints
+    - FileOverview with line count, file size, detected encoding, and search hints
     """
     canonical_path = normalize_path(absolute_file_path)
     file_info = get_file_info(canonical_path)
 
-    lines = read_file_lines(canonical_path, encoding)
-    content = read_file_content(canonical_path, encoding)
+    lines = read_file_lines(canonical_path)
+    content = read_file_content(canonical_path)
+    detected_encoding = detect_file_encoding(canonical_path)
 
     has_long_lines = any(len(line) > config.max_line_length for line in lines)
 
@@ -106,7 +107,7 @@ def get_overview(absolute_file_path: str, encoding: str = "utf-8") -> dict:
     overview = FileOverview(
         line_count=len(lines),
         file_size=file_info["size"],
-        encoding=encoding,
+        encoding=detected_encoding,
         has_long_lines=has_long_lines,
         outline=outline,
         search_hints=search_hints,
@@ -135,12 +136,11 @@ def get_overview(absolute_file_path: str, encoding: str = "utf-8") -> dict:
 def search_content(
     absolute_file_path: str,
     pattern: str,
-    encoding: str = "utf-8",
     max_results: int = 20,
     context_lines: int = 2,
     fuzzy: bool = True,
 ) -> dict:
-    """Find patterns with fuzzy matching and context.
+    """Find patterns with fuzzy matching and context using auto-detected encoding.
 
     Uses fuzzy matching via Levenshtein distance to handle real-world
     formatting variations. Returns context lines around matches for better
@@ -149,7 +149,6 @@ def search_content(
     Parameters:
     - absolute_file_path: Absolute path to the file
     - pattern: Search pattern (exact or fuzzy matching)
-    - encoding: File encoding
     - max_results: Maximum number of results to return
     - context_lines: Number of context lines before/after match
     - fuzzy: Enable fuzzy matching (default True)
@@ -159,10 +158,10 @@ def search_content(
     """
     canonical_path = normalize_path(absolute_file_path)
 
-    matches = search_file(canonical_path, pattern, encoding, fuzzy)
+    matches = search_file(canonical_path, pattern, fuzzy)
 
-    lines = read_file_lines(canonical_path, encoding)
-    content = read_file_content(canonical_path, encoding)
+    lines = read_file_lines(canonical_path)
+    content = read_file_content(canonical_path)
 
     # Try to parse with tree-sitter for semantic context
     tree = None
@@ -233,10 +232,9 @@ def search_content(
 def read_content(
     absolute_file_path: str,
     target: int | str,
-    encoding: str = "utf-8",
     mode: str = "lines",
 ) -> dict:
-    """Read content from specific location in file.
+    """Read content from specific location in file using auto-detected encoding.
 
     Read content starting from a line number or around a search pattern.
     Returns a reasonable chunk of content for LLM consumption.
@@ -244,7 +242,6 @@ def read_content(
     Parameters:
     - absolute_file_path: Absolute path to the file
     - target: Line number or search pattern to locate content
-    - encoding: File encoding
     - mode: "lines" for line-based reading (semantic mode future enhancement)
 
     Returns:
@@ -252,8 +249,8 @@ def read_content(
     """
     canonical_path = normalize_path(absolute_file_path)
 
-    lines = read_file_lines(canonical_path, encoding)
-    file_content = read_file_content(canonical_path, encoding)
+    lines = read_file_lines(canonical_path)
+    file_content = read_file_content(canonical_path)
 
     if isinstance(target, int):
         # Use semantic chunking if mode is "semantic" and tree-sitter is available
@@ -291,7 +288,7 @@ def read_content(
         }
 
     else:
-        matches = search_file(canonical_path, str(target), encoding, fuzzy=True)
+        matches = search_file(canonical_path, str(target), fuzzy=True)
 
         if not matches:
             return {
@@ -327,11 +324,10 @@ def edit_content(
     absolute_file_path: str,
     search_text: str,
     replace_text: str,
-    encoding: str = "utf-8",
     fuzzy: bool = True,
     preview: bool = True,
 ) -> dict:
-    """PRIMARY EDITING METHOD using search/replace blocks.
+    """PRIMARY EDITING METHOD using search/replace blocks with auto-detected encoding.
 
     Fuzzy matching handles whitespace variations. Eliminates line number
     confusion that causes LLM errors. This replaces line-based editing.
@@ -341,7 +337,6 @@ def edit_content(
     - absolute_file_path: Absolute path to the file
     - search_text: Text to find and replace
     - replace_text: Replacement text
-    - encoding: File encoding
     - fuzzy: Enable fuzzy matching for search_text
     - preview: Show preview without making changes (default True)
 
@@ -349,7 +344,7 @@ def edit_content(
     - EditResult with success status, preview, and change details
     """
     result = atomic_edit_file(
-        absolute_file_path, search_text, replace_text, encoding, fuzzy, preview
+        absolute_file_path, search_text, replace_text, fuzzy, preview
     )
 
     return {

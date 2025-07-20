@@ -248,6 +248,4 @@ def atomic_edit_file(
         raise EditError(f"File is not writable: {file_path}")
 
     # Perform the edit operation
-    return replace_content(
-        canonical_path, search_text, replace_text, fuzzy, preview
-    )
+    return replace_content(canonical_path, search_text, replace_text, fuzzy, preview)

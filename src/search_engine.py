@@ -71,9 +71,7 @@ def combine_results(
     return sorted(combined, key=lambda x: (x.line_number, -x.similarity_score))
 
 
-def search_file(
-    file_path: str, pattern: str, fuzzy: bool = True
-) -> list[SearchMatch]:
+def search_file(file_path: str, pattern: str, fuzzy: bool = True) -> list[SearchMatch]:
     """Search file content using auto-detected encoding. Returns clear results or clear errors."""
 
     try:
