@@ -41,9 +41,15 @@
 - All existing tests pass with auto-detection
 
 #### Phase 3: Update search and edit layers
-- [ ] Remove encoding parameter from `search_file()`
-- [ ] Remove encoding parameter from `atomic_edit_file()`
-- [ ] Remove encoding parameter from `_preview_edit()`
+- [x] Remove encoding parameter from `search_file()`
+- [x] Remove encoding parameter from `atomic_edit_file()`
+- [x] Remove encoding parameter from `_preview_edit()`
+
+**Implementation Notes:**
+- `search_file()` now uses `read_file_lines()` without encoding parameter
+- `atomic_edit_file()` and `replace_content()` updated to use auto-detection
+- **No `_preview_edit()` function**: Preview functionality is built into `replace_content()`
+- All edit operations now preserve original file encoding automatically
 
 #### Phase 4: Update public APIs
 - [ ] Remove encoding parameter from all 4 MCP tools

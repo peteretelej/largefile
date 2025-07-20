@@ -72,12 +72,12 @@ def combine_results(
 
 
 def search_file(
-    file_path: str, pattern: str, encoding: str = "utf-8", fuzzy: bool = True
+    file_path: str, pattern: str, fuzzy: bool = True
 ) -> list[SearchMatch]:
-    """Search file content. Returns clear results or clear errors."""
+    """Search file content using auto-detected encoding. Returns clear results or clear errors."""
 
     try:
-        lines = read_file_lines(file_path, encoding)
+        lines = read_file_lines(file_path)
     except Exception as e:
         raise SearchError(f"Cannot read {file_path}: {e}") from e
 
