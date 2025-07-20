@@ -8,6 +8,105 @@ LLMs cannot work with large files due to context window limitations. Research sh
 
 MCP server using **search/replace blocks** (proven by Aider, Cline, RooCode) with **fuzzy matching** and **semantic awareness**.
 
+## High-Level Architecture
+
+```mermaid
+graph TD
+    A[AI Assistant] --> B[4 MCP Tools]
+    
+    B --> C[get_overview]
+    B --> D[search_content] 
+    B --> E[read_content]
+    B --> F[edit_content]
+    
+    C --> G[Tree-sitter<br/>File Metadata]
+    D --> H[Search Engine<br/>Fuzzy Matching]
+    E --> I[Tree-sitter<br/>Semantic Chunks]
+    F --> J[Search & Replace<br/>Backup System]
+    
+    G --> K[File Access Core]
+    H --> K
+    I --> K
+    J --> K
+    
+    K --> L[Target File<br/>Memory Strategy:<br/>&lt;50MB: RAM<br/>50-500MB: mmap<br/>&gt;500MB: Stream]
+```
+
+## Tool Workflow Sequences
+
+### Overview Workflow
+```mermaid
+sequenceDiagram
+    participant AI as AI Assistant
+    participant MCP as largefile MCP
+    participant TS as Tree-sitter
+    participant File as Target File
+    
+    AI->>MCP: get_overview(file_path)
+    MCP->>File: Load file content + metadata
+    MCP->>TS: Parse for structure outline
+    TS-->>MCP: Hierarchical outline
+    MCP-->>AI: FileOverview + outline + search hints
+```
+
+### Search Workflow
+```mermaid
+sequenceDiagram
+    participant AI as AI Assistant
+    participant MCP as largefile MCP
+    participant SE as Search Engine
+    participant File as Target File
+    
+    AI->>MCP: search_content(pattern, fuzzy=true)
+    MCP->>SE: Execute fuzzy search
+    SE->>File: Scan file content
+    SE-->>MCP: Search results + similarity scores
+    MCP-->>AI: Ranked results with context
+```
+
+### Read Workflow
+```mermaid
+sequenceDiagram
+    participant AI as AI Assistant
+    participant MCP as largefile MCP
+    participant TS as Tree-sitter
+    participant File as Target File
+    
+    AI->>MCP: read_content(target, mode="semantic")
+    MCP->>TS: Find semantic boundaries
+    MCP->>File: Read complete code block
+    MCP-->>AI: Full function/class content
+```
+
+### Edit Workflow
+```mermaid
+sequenceDiagram
+    participant AI as AI Assistant
+    participant MCP as largefile MCP
+    participant SE as Search Engine
+    participant File as Target File
+    
+    AI->>MCP: edit_content(search_text, replace_text)
+    MCP->>SE: Find search_text matches
+    SE-->>MCP: Match locations + similarity
+    MCP->>File: Create backup + apply changes
+    MCP-->>AI: Edit result + backup location
+```
+
+## File Size Handling Strategy
+
+```mermaid
+flowchart TD
+    A[Target File] --> B{Size Check}
+    B -->|< 50MB| C[Load to RAM<br/>Fast access<br/>Full Tree-sitter parsing]
+    B -->|50-500MB| D[Memory Map<br/>Efficient access<br/>Indexed operations]
+    B -->|> 500MB| E[Stream Processing<br/>Memory safe<br/>Chunked operations]
+    
+    C --> F[MCP Tools]
+    D --> F
+    E --> F
+```
+
 ## Architecture
 
 ### Interface

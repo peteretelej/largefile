@@ -4,7 +4,7 @@ MCP server that helps your AI assistant work with large files that exceed contex
 
 [![CI](https://img.shields.io/github/actions/workflow/status/peteretelej/largefile/ci.yml?branch=main&logo=github)](https://github.com/peteretelej/largefile/actions/workflows/ci.yml) [![codecov](https://codecov.io/gh/peteretelej/largefile/branch/main/graph/badge.svg)](https://codecov.io/gh/peteretelej/largefile) [![PyPI version](https://img.shields.io/pypi/v/largefile.svg)](https://pypi.org/project/largefile/) [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff) [![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
 
-This MCP server enables AI assistants to navigate, search, and edit files of any size without loading entire content into memory. It provides targeted access to specific lines, patterns, and sections while maintaining file integrity using research-backed search/replace editing instead of error-prone line-based operations. Perfect for working with large codebases, generated files, logs, and datasets that would otherwise be inaccessible due to context window limitations.
+This local MCP server enables AI assistants to navigate, search, and edit files of any size without loading entire content into memory. It provides targeted access to specific lines, patterns, and sections while maintaining file integrity using research-backed search/replace editing instead of error-prone line-based operations. Perfect for working with large codebases, generated files, logs, and datasets that would otherwise be inaccessible due to context window limitations.
 
 ## MCP Tools
 
@@ -32,7 +32,9 @@ Add to your MCP configuration:
 }
 ```
 
-## Usage Examples
+## Usage
+
+Your AI Assistant / LLM can now work with very large files that exceed its context limits. Here are some common workflows:
 
 ### Analyzing Large Code Files
 
@@ -40,9 +42,9 @@ Add to your MCP configuration:
 
 **AI Assistant workflow:**
 
-1. Get file overview to understand structure
-2. Search for classes and their methods
-3. Look for code issues like TODOs or long functions
+1. Gets file overview to understand structure
+2. Searches for classes and their methods
+3. Looks for code issues like TODOs or long functions
 
 ```python
 # AI gets file structure
@@ -215,7 +217,8 @@ LARGEFILE_BACKUP_DIR=".largefile_backups" # Backup location
 
 ## Documentation
 
-- [API Reference](docs/api-reference.md) - Detailed tool documentation
+- [API Reference](docs/API.md) - Detailed tool documentation
 - [Configuration Guide](docs/configuration.md) - Environment variables and tuning
 - [Examples](docs/examples.md) - Real-world usage examples and workflows
 - [Design Document](docs/design.md) - Architecture and implementation details
+- [Contributing](docs/CONTRIBUTING.md) - Development setup and guidelines
