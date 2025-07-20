@@ -1,6 +1,7 @@
 coverage:
   ignore:
     - "tests/test_data"
+    - "scripts"
     - "htmlcov"
     - ".coverage"
     - "coverage.xml"
