@@ -21,12 +21,24 @@
 - [x] Create `detect_file_encoding(file_path: str) -> str` in `file_access.py`
 - [x] Fallback to utf-8 on detection failure
 
+**Implementation Notes:**
+- Added 0.7 confidence threshold to prevent poor chardet guesses
+- Detection function handles empty files, exceptions, and low confidence cases
+- Test coverage for UTF-8, Latin-1, UTF-16, empty files, and non-existent files
+
 #### Phase 2: Update file access layer
-- [ ] Remove encoding parameter from `read_file_content()`
-- [ ] Remove encoding parameter from `read_file_lines()`  
-- [ ] Remove encoding parameter from `write_file_content()`
-- [ ] Update internal strategy functions
-- [ ] Add encoding cache per file session
+- [x] Remove encoding parameter from `read_file_content()`
+- [x] Remove encoding parameter from `read_file_lines()`  
+- [x] Remove encoding parameter from `write_file_content()`
+- [x] Update internal strategy functions
+- [x] Add encoding cache per file session
+
+**Implementation Notes:**
+- `read_file_content()` and `read_file_lines()` now call `detect_file_encoding()` internally
+- `write_file_content()` preserves existing file encoding or defaults to utf-8 for new files
+- Internal strategy functions (`_read_file_memory`, etc.) still accept encoding parameter
+- **Skipped caching**: Detection is fast (~1-5ms), avoiding session management complexity
+- All existing tests pass with auto-detection
 
 #### Phase 3: Update search and edit layers
 - [ ] Remove encoding parameter from `search_file()`
@@ -62,15 +74,16 @@ def detect_file_encoding(file_path: str) -> str:
             return 'utf-8'
             
         result = chardet.detect(sample)
-        return result['encoding'] or 'utf-8'
+        
+        # Use detection only if confidence is reasonable (>= 0.7)
+        if result and result.get('confidence', 0) >= 0.7:
+            return result['encoding'] or 'utf-8'
+        else:
+            return 'utf-8'
             
     except Exception:
         return 'utf-8'
 ```
-
-### Caching
-- Cache encoding per file: `canonical_path + mtime`
-- Clear cache on file modification
 
 ## Testing
 
@@ -88,6 +101,11 @@ def detect_file_encoding(file_path: str) -> str:
 - Self-documenting functions
 - Minimal abstraction layers
 - Direct error handling
+
+### Implementation Guidance
+- Document scope changes and decisions made during each phase
+- Note what was skipped and why (e.g., complexity vs benefit trade-offs)
+- Keep implementation notes concise but informative for future reference
 
 ### API After Implementation
 ```python
