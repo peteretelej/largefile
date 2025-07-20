@@ -185,8 +185,17 @@ def write_file_content(file_path: str, content: str, encoding: str = "utf-8") ->
     temp_path = f"{canonical_path}.tmp"
 
     try:
+        # Clean up any existing temp file first
+        if os.path.exists(temp_path):
+            os.unlink(temp_path)
+
         with open(temp_path, "w", encoding=encoding) as f:
             f.write(content)
+
+        # Windows requires removing the target file before rename
+        if os.name == "nt" and os.path.exists(canonical_path):
+            os.unlink(canonical_path)
+
         os.rename(temp_path, canonical_path)
     except Exception as e:
         if os.path.exists(temp_path):

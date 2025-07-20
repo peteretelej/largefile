@@ -99,8 +99,14 @@ class TestFileAccess:
 
     def test_path_normalization(self):
         """Test path normalization functionality."""
-        # Test absolute path
-        abs_path = "/home/user/file.txt"
+        # Test absolute path (platform-specific)
+        import os
+
+        if os.name == "nt":  # Windows
+            abs_path = r"C:\Users\user\file.txt"
+        else:  # Unix-like
+            abs_path = "/home/user/file.txt"
+
         normalized = normalize_path(abs_path)
         assert normalized == abs_path
 
@@ -108,7 +114,12 @@ class TestFileAccess:
         rel_path = "file.txt"
         normalized = normalize_path(rel_path)
         assert normalized.endswith("file.txt")
-        assert normalized.startswith("/")  # Should be absolute
+        if os.name == "nt":  # Windows
+            assert len(normalized) > len(
+                rel_path
+            )  # Should be absolute (has drive letter)
+        else:  # Unix-like
+            assert normalized.startswith("/")  # Should be absolute
 
         # Test home directory expansion
         home_path = "~/file.txt"
