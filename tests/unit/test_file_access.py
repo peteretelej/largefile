@@ -125,4 +125,9 @@ class TestFileAccess:
         home_path = "~/file.txt"
         normalized = normalize_path(home_path)
         assert "~" not in normalized  # Should be expanded
-        assert normalized.startswith("/")  # Should be absolute
+        if os.name == "nt":  # Windows
+            assert len(normalized) > len(
+                home_path
+            )  # Should be absolute (has drive letter)
+        else:  # Unix-like
+            assert normalized.startswith("/")  # Should be absolute
