@@ -1,0 +1,19 @@
+coverage:
+  status:
+    project:
+      default:
+        target: 70%
+        threshold: 5%
+        paths:
+          - "src/"
+    patch:
+      default:
+        target: 60%
+        threshold: 10%
+        paths:
+          - "src/"
+
+comment:
+  behavior: default
+  layout: "reach,diff,flags,tree"
+  require_changes: false
