@@ -42,7 +42,7 @@ Issues = "https://github.com/peteretelej/largefile/issues"
 Documentation = "https://github.com/peteretelej/largefile#readme"
 
 [project.scripts]
-largefile-mcp = "src.main:main"
+largefile-mcp = "src.main:cli_main"
 
 [build-system]
 requires = ["hatchling"]
