@@ -73,9 +73,16 @@
 
 #### Phase 5: Documentation and testing
 
-- [ ] Update API.md, design.md, examples
-- [ ] Add encoding detection tests
-- [ ] Test various encodings and edge cases
+- [x] Update API.md, design.md, examples
+- [x] Add encoding detection tests
+- [x] Test various encodings and edge cases
+
+**Implementation Notes:**
+- API.md updated to remove all encoding parameters from tool signatures
+- design.md updated to reflect auto-detected encoding support
+- examples.md already clean (no encoding parameters used)
+- **Existing tests comprehensive**: UTF-8, Latin-1, UTF-16, empty files, non-existent files
+- **ASCII detection fix**: ASCII files now default to UTF-8 for better compatibility
 
 #### Phase 6: Quality assurance
 
