@@ -73,7 +73,7 @@ def get_tool_schemas() -> list[types.Tool]:
         ),
         types.Tool(
             name="read_content",
-            description="Read specific content from large files using semantic chunking. Use after locating content with search to examine complete functions, classes, or code sections. Returns semantically complete blocks rather than arbitrary line ranges. Requires absolute file paths only.",
+            description="Read specific content from large files using semantic chunking. Use after locating content with search to examine complete functions, classes, or code sections. Returns semantically complete blocks rather than arbitrary line ranges. Use mode='tail' to efficiently read the last N lines from log files or append-only data. Requires absolute file paths only.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -83,13 +83,13 @@ def get_tool_schemas() -> list[types.Tool]:
                     },
                     "target": {
                         "oneOf": [{"type": "integer"}, {"type": "string"}],
-                        "description": "Line number or search pattern to locate content",
+                        "description": "Line number, search pattern, or number of lines from end (for tail mode)",
                     },
                     "mode": {
                         "type": "string",
-                        "description": "Content extraction method",
+                        "description": "Content extraction method: 'lines' for line-based, 'semantic' for tree-sitter chunking, 'tail' for last N lines",
                         "default": "lines",
-                        "enum": ["lines", "semantic"],
+                        "enum": ["lines", "semantic", "tail"],
                     },
                 },
                 "required": ["absolute_file_path", "target"],

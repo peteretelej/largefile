@@ -13,6 +13,7 @@ from src.file_access import (
     get_file_info,
     normalize_path,
     read_file_content,
+    read_tail,
 )
 
 
@@ -180,3 +181,118 @@ class TestFileAccess:
             )  # Should be absolute (has drive letter)
         else:  # Unix-like
             assert normalized.startswith("/")  # Should be absolute
+
+
+class TestReadTail:
+    """Test read_tail function for reading last N lines."""
+
+    def test_read_tail_small_file(self):
+        """Reads last N lines from small file."""
+        test_content = "Line 1\nLine 2\nLine 3\nLine 4\nLine 5\n"
+
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as f:
+            f.write(test_content)
+            temp_path = f.name
+
+        try:
+            result = read_tail(temp_path, 3)
+
+            assert "content" in result
+            assert "start_line" in result
+            assert "end_line" in result
+            assert "total_lines" in result
+
+            assert result["total_lines"] == 5
+            assert result["end_line"] == 5
+            assert result["start_line"] == 3  # Lines 3, 4, 5
+            assert "Line 3" in result["content"]
+            assert "Line 4" in result["content"]
+            assert "Line 5" in result["content"]
+            assert "Line 1" not in result["content"]
+            assert "Line 2" not in result["content"]
+
+        finally:
+            Path(temp_path).unlink()
+
+    def test_read_tail_more_lines_than_file(self):
+        """Returns entire file when N > total lines."""
+        test_content = "Line 1\nLine 2\nLine 3\n"
+
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as f:
+            f.write(test_content)
+            temp_path = f.name
+
+        try:
+            result = read_tail(temp_path, 100)  # Request more lines than file has
+
+            assert result["total_lines"] == 3
+            assert result["start_line"] == 1  # Start from beginning
+            assert result["end_line"] == 3
+            assert result["content"] == test_content
+
+        finally:
+            Path(temp_path).unlink()
+
+    def test_read_tail_returns_correct_line_numbers(self):
+        """Verifies start_line and end_line are 1-indexed."""
+        test_content = "A\nB\nC\nD\nE\nF\nG\nH\nI\nJ\n"
+
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as f:
+            f.write(test_content)
+            temp_path = f.name
+
+        try:
+            result = read_tail(temp_path, 3)
+
+            # Should return lines 8, 9, 10 (H, I, J)
+            assert result["total_lines"] == 10
+            assert result["start_line"] == 8  # 1-indexed
+            assert result["end_line"] == 10
+            assert "H\n" in result["content"]
+            assert "I\n" in result["content"]
+            assert "J\n" in result["content"]
+
+        finally:
+            Path(temp_path).unlink()
+
+    def test_read_tail_single_line(self):
+        """Reads last single line."""
+        test_content = "Line 1\nLine 2\nLine 3\n"
+
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as f:
+            f.write(test_content)
+            temp_path = f.name
+
+        try:
+            result = read_tail(temp_path, 1)
+
+            assert result["total_lines"] == 3
+            assert result["start_line"] == 3
+            assert result["end_line"] == 3
+            assert result["content"] == "Line 3\n"
+
+        finally:
+            Path(temp_path).unlink()
+
+    def test_read_tail_empty_file(self):
+        """Handles empty file gracefully."""
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as f:
+            temp_path = f.name
+
+        try:
+            result = read_tail(temp_path, 10)
+
+            assert result["total_lines"] == 0
+            assert result["content"] == ""
+            assert result["start_line"] == 1  # 1-indexed minimum
+
+        finally:
+            Path(temp_path).unlink()
+
+    def test_read_tail_nonexistent_file(self):
+        """Raises error for non-existent file."""
+        try:
+            read_tail("/nonexistent/file.txt", 10)
+            raise AssertionError("Should have raised FileAccessError")
+        except FileAccessError as e:
+            assert "Cannot access file" in str(e)

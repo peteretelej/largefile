@@ -210,6 +210,62 @@ def _read_file_lines_streaming(file_path: str, encoding: str = "utf-8") -> list[
         ) from e
 
 
+def read_tail(file_path: str, num_lines: int) -> dict:
+    """Read last N lines efficiently using deque for large files.
+
+    Args:
+        file_path: Path to the file to read.
+        num_lines: Number of lines to read from the end.
+
+    Returns:
+        Dictionary with content, start_line, end_line, and total_lines.
+    """
+    from collections import deque
+
+    canonical_path = normalize_path(file_path)
+    file_info = get_file_info(canonical_path)
+    encoding = detect_file_encoding(canonical_path)
+    file_size = file_info["size"]
+
+    try:
+        with open(canonical_path, encoding=encoding) as f:
+            if file_size < config.memory_threshold:
+                # Small file: read all lines into memory
+                lines = f.readlines()
+                total = len(lines)
+                start = max(0, total - num_lines)
+                content = "".join(lines[start:])
+                return {
+                    "content": content,
+                    "start_line": start + 1,  # 1-indexed
+                    "end_line": total,
+                    "total_lines": total,
+                }
+
+            # Large file: stream with deque to limit memory
+            tail: deque[str] = deque(maxlen=num_lines)
+            total = 0
+            for line in f:
+                tail.append(line)
+                total += 1
+
+            content = "".join(tail)
+            start = total - len(tail) + 1  # 1-indexed
+
+            return {
+                "content": content,
+                "start_line": start,
+                "end_line": total,
+                "total_lines": total,
+            }
+    except (FileNotFoundError, PermissionError, IsADirectoryError) as e:
+        raise FileAccessError(f"Cannot read file {file_path}: {e}") from e
+    except UnicodeDecodeError as e:
+        raise FileAccessError(
+            f"Cannot decode file {file_path} with encoding {encoding}: {e}"
+        ) from e
+
+
 def write_file_content(file_path: str, content: str) -> None:
     """Write content to file atomically using temp file + rename with auto-detected encoding."""
     canonical_path = normalize_path(file_path)

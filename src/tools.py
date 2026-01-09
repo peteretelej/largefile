@@ -12,6 +12,7 @@ from .file_access import (
     normalize_path,
     read_file_content,
     read_file_lines,
+    read_tail,
 )
 from .search_engine import search_file
 from .tree_parser import (
@@ -242,12 +243,29 @@ def read_content(
     Parameters:
     - absolute_file_path: Absolute path to the file
     - target: Line number or search pattern to locate content
-    - mode: "lines" for line-based reading (semantic mode future enhancement)
+    - mode: "lines" for line-based reading, "semantic" for tree-sitter chunking,
+            or "tail" for reading last N lines from end of file
 
     Returns:
     - Content string with metadata about the read operation
     """
     canonical_path = normalize_path(absolute_file_path)
+
+    # Handle tail mode - read last N lines efficiently
+    if mode == "tail":
+        if not isinstance(target, int):
+            raise ValueError(
+                "Tail mode requires integer target (number of lines from end)"
+            )
+        if target <= 0:
+            raise ValueError("Tail mode target must be positive")
+
+        result = read_tail(canonical_path, target)
+        return {
+            **result,
+            "mode": "tail",
+            "target_type": "line_count",
+        }
 
     lines = read_file_lines(canonical_path)
     file_content = read_file_content(canonical_path)
