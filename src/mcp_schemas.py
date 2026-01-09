@@ -17,6 +17,7 @@ class ToolsModule(Protocol):
     def search_content(self, **kwargs: Any) -> Any: ...
     def read_content(self, **kwargs: Any) -> Any: ...
     def edit_content(self, **kwargs: Any) -> Any: ...
+    def revert_edit(self, **kwargs: Any) -> Any: ...
 
 
 def get_tool_schemas() -> list[types.Tool]:
@@ -129,6 +130,25 @@ def get_tool_schemas() -> list[types.Tool]:
             },
             annotations=types.ToolAnnotations(destructiveHint=True),
         ),
+        types.Tool(
+            name="revert_edit",
+            description="Revert a file to a previous backup state. Creates backup of current state before reverting. Use to recover from bad edits. Returns available backups list. Requires absolute file paths only.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "absolute_file_path": {
+                        "type": "string",
+                        "description": "Absolute path to the file to revert",
+                    },
+                    "backup_id": {
+                        "type": "string",
+                        "description": "Backup timestamp ID to revert to. If omitted, uses most recent backup.",
+                    },
+                },
+                "required": ["absolute_file_path"],
+            },
+            annotations=types.ToolAnnotations(destructiveHint=True),
+        ),
     ]
 
 
@@ -151,6 +171,8 @@ def register_tool_handlers(server: Server, tools_module: ToolsModule) -> None:
             result = tools_module.read_content(**arguments)
         elif name == "edit_content":
             result = tools_module.edit_content(**arguments)
+        elif name == "revert_edit":
+            result = tools_module.revert_edit(**arguments)
         else:
             raise ValueError(f"Unknown tool: {name}")
 

@@ -66,3 +66,14 @@ class EditResult:
     fuzzy_enabled: bool | None = None
     similar_matches: list[SimilarMatch] = field(default_factory=list)
     suggestion: str | None = None
+
+
+@dataclass
+class RevertResult:
+    """Result of a revert operation."""
+
+    success: bool
+    reverted_to: BackupInfo | None
+    current_saved_as: BackupInfo | None  # Pre-revert state preserved
+    available_backups: list[BackupInfo]
+    error: str | None = None

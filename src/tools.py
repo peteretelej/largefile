@@ -1,14 +1,18 @@
+import os
+import shutil
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from .config import config
-from .data_models import FileOverview, SearchResult
+from .data_models import BackupInfo, FileOverview, SearchResult
 from .editor import atomic_edit_file
 from .exceptions import EditError, FileAccessError, SearchError, TreeSitterError
 from .file_access import (
+    create_backup,
     detect_file_encoding,
     get_file_info,
+    list_backups,
     normalize_path,
     read_file_content,
     read_file_lines,
@@ -390,3 +394,90 @@ def edit_content(
             ]
 
     return response
+
+
+def _backup_to_dict(backup: BackupInfo) -> dict:
+    """Convert BackupInfo to dictionary."""
+    return {
+        "id": backup.id,
+        "timestamp": backup.timestamp,
+        "size": backup.size,
+        "path": backup.path,
+    }
+
+
+@handle_tool_errors
+def revert_edit(
+    absolute_file_path: str,
+    backup_id: str | None = None,
+) -> dict:
+    """Revert file to a previous backup state.
+
+    Creates a backup of the current state before reverting to ensure
+    no work is lost. Use this to recover from bad edits.
+
+    Parameters:
+    - absolute_file_path: Absolute path to the file to revert
+    - backup_id: Backup timestamp ID to revert to. If omitted, uses most recent.
+
+    Returns:
+    - RevertResult with success status, backup info, and available backups
+    """
+    file_path = normalize_path(absolute_file_path)
+
+    if not os.path.exists(file_path):
+        return {
+            "success": False,
+            "reverted_to": None,
+            "current_saved_as": None,
+            "available_backups": [],
+            "error": f"File does not exist: {file_path}",
+        }
+
+    backups = list_backups(file_path)
+
+    if not backups:
+        return {
+            "success": False,
+            "reverted_to": None,
+            "current_saved_as": None,
+            "available_backups": [],
+            "error": "No backups found for this file",
+        }
+
+    # Select backup
+    target_backup: BackupInfo | None = None
+    if backup_id is None:
+        target_backup = backups[0]  # Most recent
+    else:
+        for b in backups:
+            if b.id == backup_id:
+                target_backup = b
+                break
+        if target_backup is None:
+            return {
+                "success": False,
+                "reverted_to": None,
+                "current_saved_as": None,
+                "available_backups": [_backup_to_dict(b) for b in backups],
+                "error": f"Backup {backup_id} not found. See available_backups.",
+            }
+
+    # At this point target_backup is guaranteed to be set
+    assert target_backup is not None
+
+    # Save current state before revert
+    current_backup = create_backup(file_path)
+
+    # Perform revert
+    shutil.copy2(target_backup.path, file_path)
+
+    # Get updated backup list
+    updated_backups = list_backups(file_path)
+
+    return {
+        "success": True,
+        "reverted_to": _backup_to_dict(target_backup),
+        "current_saved_as": _backup_to_dict(current_backup),
+        "available_backups": [_backup_to_dict(b) for b in updated_backups],
+    }
