@@ -5,8 +5,8 @@ from pathlib import Path
 from typing import Any
 
 from .config import config
-from .data_models import BackupInfo, FileOverview, SearchResult
-from .editor import atomic_edit_file
+from .data_models import BackupInfo, Change, ChangeResult, FileOverview, SearchResult
+from .editor import atomic_edit_file, batch_edit_content
 from .exceptions import EditError, FileAccessError, SearchError, TreeSitterError
 from .file_access import (
     create_backup,
@@ -341,30 +341,112 @@ def read_content(
         }
 
 
+def _change_result_to_dict(r: ChangeResult) -> dict:
+    """Convert ChangeResult to dictionary."""
+    d: dict[str, Any] = {
+        "index": r.index,
+        "success": r.success,
+    }
+    if r.line_number is not None:
+        d["line_number"] = r.line_number
+    if r.match_type is not None:
+        d["match_type"] = r.match_type
+    if r.similarity is not None:
+        d["similarity"] = r.similarity
+    if r.error is not None:
+        d["error"] = r.error
+    if r.similar_matches:
+        d["similar_matches"] = [
+            {"line": m.line, "content": m.content, "similarity": m.similarity}
+            for m in r.similar_matches
+        ]
+    return d
+
+
 @handle_tool_errors
 def edit_content(
     absolute_file_path: str,
-    search_text: str,
-    replace_text: str,
+    search_text: str | None = None,
+    replace_text: str | None = None,
+    changes: list[dict[str, Any]] | None = None,
     fuzzy: bool = True,
     preview: bool = True,
 ) -> dict:
     """PRIMARY EDITING METHOD using search/replace blocks with auto-detected encoding.
 
+    Supports both single edit and batch edit modes:
+    - Single edit: Provide search_text and replace_text
+    - Batch edit: Provide changes array for multiple edits atomically
+
     Fuzzy matching handles whitespace variations. Eliminates line number
-    confusion that causes LLM errors. This replaces line-based editing.
-    Creates automatic backups before changes.
+    confusion that causes LLM errors. Creates automatic backups before changes.
 
     Parameters:
     - absolute_file_path: Absolute path to the file
-    - search_text: Text to find and replace
-    - replace_text: Replacement text
-    - fuzzy: Enable fuzzy matching for search_text
+    - search_text: Text to find and replace (single edit mode)
+    - replace_text: Replacement text (single edit mode)
+    - changes: Array of {search, replace, fuzzy?} objects (batch edit mode)
+    - fuzzy: Enable fuzzy matching (default True, can be overridden per-change)
     - preview: Show preview without making changes (default True)
 
     Returns:
     - EditResult with success status, preview, and change details
     """
+    # Validate parameter combinations
+    if changes is not None:
+        if search_text is not None or replace_text is not None:
+            return {
+                "error": "Cannot use 'changes' with 'search_text' or 'replace_text'",
+                "suggestion": "Use either single edit (search_text/replace_text) or batch edit (changes), not both",
+            }
+        if len(changes) == 0:
+            return {
+                "error": "Empty changes array",
+                "suggestion": "Provide at least one change in the changes array",
+            }
+        if len(changes) > config.max_batch_changes:
+            return {
+                "error": f"Too many changes: {len(changes)} exceeds limit of {config.max_batch_changes}",
+                "suggestion": f"Split into multiple calls with at most {config.max_batch_changes} changes each",
+            }
+
+        # Convert dict changes to Change objects
+        change_objects: list[Change] = []
+        for i, c in enumerate(changes):
+            if "search" not in c or "replace" not in c:
+                return {
+                    "error": f"Change at index {i} missing required 'search' or 'replace' field",
+                    "suggestion": "Each change must have 'search' and 'replace' fields",
+                }
+            change_objects.append(
+                Change(
+                    search=c["search"],
+                    replace=c["replace"],
+                    fuzzy=c.get("fuzzy"),
+                )
+            )
+
+        result = batch_edit_content(absolute_file_path, change_objects, fuzzy, preview)
+
+        response: dict[str, Any] = {
+            "success": result.success,
+            "changes_applied": result.changes_applied,
+            "changes_failed": result.changes_failed,
+            "results": [_change_result_to_dict(r) for r in result.results]
+            if result.results
+            else [],
+            "preview": result.preview,
+            "backup_created": result.backup_created,
+        }
+        return response
+
+    # Single edit mode
+    if search_text is None or replace_text is None:
+        return {
+            "error": "Missing required parameters",
+            "suggestion": "Provide either (search_text, replace_text) for single edit or (changes) for batch edit",
+        }
+
     result = atomic_edit_file(
         absolute_file_path, search_text, replace_text, fuzzy, preview
     )

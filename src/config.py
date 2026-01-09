@@ -26,6 +26,7 @@ class Config:
         "LARGEFILE_BACKUP_DIR", str(Path.home() / ".largefile" / "backups")
     )
     max_backups: int = int(os.getenv("LARGEFILE_MAX_BACKUPS", "10"))
+    max_batch_changes: int = int(os.getenv("LARGEFILE_MAX_BATCH_CHANGES", "50"))
 
     enable_tree_sitter: bool = (
         os.getenv("LARGEFILE_ENABLE_TREE_SITTER", "true").lower() == "true"

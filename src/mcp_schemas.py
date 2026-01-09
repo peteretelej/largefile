@@ -99,7 +99,7 @@ def get_tool_schemas() -> list[types.Tool]:
         ),
         types.Tool(
             name="edit_content",
-            description="Modify large files using search and replace operations with fuzzy matching. Use with caution as it modifies file content. Returns diff preview showing changes and creates automatic backups. Requires absolute file paths only.",
+            description="Modify large files using search and replace operations with fuzzy matching. Supports single edit (search_text/replace_text) or batch edit (changes array) for multiple atomic changes. Returns diff preview and creates automatic backups. Requires absolute file paths only.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -109,15 +109,37 @@ def get_tool_schemas() -> list[types.Tool]:
                     },
                     "search_text": {
                         "type": "string",
-                        "description": "Exact text to find and replace",
+                        "description": "Text to find and replace (single edit mode)",
                     },
                     "replace_text": {
                         "type": "string",
-                        "description": "New text content",
+                        "description": "New text content (single edit mode)",
+                    },
+                    "changes": {
+                        "type": "array",
+                        "description": "Array of changes for batch edit mode. Each change has search, replace, and optional fuzzy fields",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "search": {
+                                    "type": "string",
+                                    "description": "Text to find",
+                                },
+                                "replace": {
+                                    "type": "string",
+                                    "description": "Replacement text",
+                                },
+                                "fuzzy": {
+                                    "type": "boolean",
+                                    "description": "Per-change fuzzy override",
+                                },
+                            },
+                            "required": ["search", "replace"],
+                        },
                     },
                     "fuzzy": {
                         "type": "boolean",
-                        "description": "Enable similarity-based text matching",
+                        "description": "Enable similarity-based text matching (default for all changes)",
                         "default": True,
                     },
                     "preview": {
@@ -126,7 +148,7 @@ def get_tool_schemas() -> list[types.Tool]:
                         "default": True,
                     },
                 },
-                "required": ["absolute_file_path", "search_text", "replace_text"],
+                "required": ["absolute_file_path"],
             },
             annotations=types.ToolAnnotations(destructiveHint=True),
         ),

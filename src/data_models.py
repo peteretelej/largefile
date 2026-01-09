@@ -21,6 +21,28 @@ class SimilarMatch:
 
 
 @dataclass
+class Change:
+    """A single change in a batch edit operation."""
+
+    search: str
+    replace: str
+    fuzzy: bool | None = None  # Per-change override, falls back to top-level
+
+
+@dataclass
+class ChangeResult:
+    """Result of applying a single change in a batch edit."""
+
+    index: int
+    success: bool
+    line_number: int | None = None
+    match_type: str | None = None  # "exact" | "fuzzy"
+    similarity: float | None = None  # 0.0-1.0 if fuzzy
+    error: str | None = None
+    similar_matches: list[SimilarMatch] | None = None
+
+
+@dataclass
 class FileOverview:
     line_count: int
     file_size: int
@@ -66,6 +88,10 @@ class EditResult:
     fuzzy_enabled: bool | None = None
     similar_matches: list[SimilarMatch] = field(default_factory=list)
     suggestion: str | None = None
+    # Batch edit fields
+    changes_applied: int | None = None
+    changes_failed: int | None = None
+    results: list[ChangeResult] | None = None
 
 
 @dataclass

@@ -4,7 +4,7 @@ import difflib
 import os
 
 from .config import config
-from .data_models import EditResult, SimilarMatch
+from .data_models import Change, ChangeResult, EditResult, SimilarMatch
 from .exceptions import EditError
 from .file_access import normalize_path, read_file_content, write_file_content
 from .search_engine import find_similar_patterns
@@ -290,3 +290,195 @@ def atomic_edit_file(
 
     # Perform the edit operation
     return replace_content(canonical_path, search_text, replace_text, fuzzy, preview)
+
+
+def find_match_with_position(
+    content: str, search_text: str, fuzzy: bool = True
+) -> tuple[int, int, int, str, float] | None:
+    """Find match and return (start_pos, end_pos, line_number, match_type, similarity).
+
+    Returns None if no match found.
+    """
+    # Try exact match first
+    start = content.find(search_text)
+    if start != -1:
+        end = start + len(search_text)
+        line_number = content[:start].count("\n") + 1
+        return start, end, line_number, "exact", 1.0
+
+    if not fuzzy:
+        return None
+
+    # Try fuzzy matching - find the best matching line
+    try:
+        from rapidfuzz import fuzz
+    except ImportError:
+        return None
+
+    lines = content.splitlines(keepends=True)
+    best_similarity = 0.0
+    best_line_idx = -1
+    best_line_content = ""
+
+    for i, line in enumerate(lines):
+        similarity = fuzz.ratio(search_text, line.rstrip("\n\r")) / 100.0
+        if similarity >= config.fuzzy_threshold and similarity > best_similarity:
+            best_similarity = similarity
+            best_line_idx = i
+            best_line_content = line
+
+    if best_line_idx < 0:
+        return None
+
+    # Calculate positions
+    start = sum(len(lines[j]) for j in range(best_line_idx))
+    end = start + len(best_line_content)
+    line_number = best_line_idx + 1
+
+    return start, end, line_number, "fuzzy", best_similarity
+
+
+def apply_batch_edits(
+    content: str, changes: list[Change], default_fuzzy: bool
+) -> tuple[str, list[ChangeResult]]:
+    """Apply multiple edits atomically with partial success semantics.
+
+    Returns modified content and per-change results.
+    Some edits can fail without blocking others.
+    """
+    results: list[ChangeResult] = []
+    pending_edits: list[
+        tuple[int, int, int, str, int, str, float]
+    ] = []  # (index, start, end, replacement, line_num, match_type, similarity)
+
+    # Phase 1: Locate all matches
+    for i, change in enumerate(changes):
+        use_fuzzy = change.fuzzy if change.fuzzy is not None else default_fuzzy
+        match = find_match_with_position(content, change.search, use_fuzzy)
+
+        if match is None:
+            # Find similar patterns for error message
+            similar = find_similar_patterns(content, change.search, limit=3)
+            results.append(
+                ChangeResult(
+                    index=i,
+                    success=False,
+                    error="Pattern not found",
+                    similar_matches=similar if similar else None,
+                )
+            )
+            continue
+
+        start, end, line_num, match_type, similarity = match
+        pending_edits.append(
+            (i, start, end, change.replace, line_num, match_type, similarity)
+        )
+        results.append(
+            ChangeResult(
+                index=i,
+                success=True,  # Tentative - may fail overlap check
+                line_number=line_num,
+                match_type=match_type,
+                similarity=similarity,
+            )
+        )
+
+    # Phase 2: Detect overlaps (sort by start position)
+    pending_edits.sort(key=lambda x: x[1])
+    valid_edits: list[tuple[int, int, int, str, int, str, float]] = []
+
+    for edit in pending_edits:
+        idx, start, end, replacement, line_num, match_type, similarity = edit
+
+        # Check overlap with previous valid edit
+        if valid_edits and start < valid_edits[-1][2]:
+            # Overlap detected - mark as failed
+            for r in results:
+                if r.index == idx:
+                    r.success = False
+                    r.error = f"Overlaps with change {valid_edits[-1][0]}"
+                    break
+            continue
+
+        valid_edits.append(edit)
+
+    # Phase 3: Apply edits (bottom-to-top to preserve positions)
+    valid_edits.sort(key=lambda x: x[1], reverse=True)
+
+    for (
+        _idx,
+        start,
+        end,
+        replacement,
+        _line_num,
+        _match_type,
+        _similarity,
+    ) in valid_edits:
+        content = content[:start] + replacement + content[end:]
+
+    return content, results
+
+
+def batch_edit_content(
+    file_path: str,
+    changes: list[Change],
+    fuzzy: bool = True,
+    preview: bool = True,
+) -> EditResult:
+    """Apply multiple edits to a file atomically."""
+    canonical_path = normalize_path(file_path)
+
+    # Check file exists and is readable
+    if not os.path.exists(canonical_path):
+        raise EditError(f"File does not exist: {file_path}")
+
+    if not os.access(canonical_path, os.R_OK):
+        raise EditError(f"File is not readable: {file_path}")
+
+    if not preview and not os.access(canonical_path, os.W_OK):
+        raise EditError(f"File is not writable: {file_path}")
+
+    # Read original content
+    try:
+        original_content = read_file_content(canonical_path)
+    except Exception as e:
+        raise EditError(f"Cannot read {file_path}: {e}") from e
+
+    # Apply batch edits
+    modified_content, change_results = apply_batch_edits(
+        original_content, changes, fuzzy
+    )
+
+    # Count successes and failures
+    changes_applied = sum(1 for r in change_results if r.success)
+    changes_failed = sum(1 for r in change_results if not r.success)
+
+    # Generate unified diff preview
+    preview_text = generate_diff_preview(original_content, modified_content, "batch")
+
+    result = EditResult(
+        success=changes_applied > 0,
+        preview=preview_text,
+        changes_made=changes_applied,
+        line_number=0,  # Not applicable for batch
+        similarity_used=0.0,  # Not applicable for batch
+        match_type="batch",
+        changes_applied=changes_applied,
+        changes_failed=changes_failed,
+        results=change_results,
+    )
+
+    if preview:
+        return result
+
+    # Make actual changes atomically
+    try:
+        from .file_access import create_backup
+
+        backup_info = create_backup(canonical_path)
+        write_file_content(canonical_path, modified_content)
+        result.backup_created = backup_info.path
+        return result
+
+    except Exception as e:
+        raise EditError(f"Failed to write changes to {file_path}: {e}") from e

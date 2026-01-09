@@ -6,8 +6,13 @@ Test core content editing and backup functionality.
 import tempfile
 from pathlib import Path
 
-from src.data_models import SimilarMatch
-from src.editor import atomic_edit_file, generate_suggestion
+from src.data_models import Change, SimilarMatch
+from src.editor import (
+    apply_batch_edits,
+    atomic_edit_file,
+    batch_edit_content,
+    generate_suggestion,
+)
 from src.file_access import create_backup
 
 
@@ -176,3 +181,192 @@ class TestEnhancedErrorResponses:
 
         finally:
             Path(temp_path).unlink()
+
+
+class TestBatchEditing:
+    """Test batch editing functionality."""
+
+    def test_batch_edit_all_succeed(self):
+        """All changes apply successfully."""
+        content = "def foo():\n    pass\n\ndef bar():\n    pass\n"
+        changes = [
+            Change(search="def foo():", replace="def foo(x):"),
+            Change(search="def bar():", replace="def bar(y):"),
+        ]
+
+        modified, results = apply_batch_edits(content, changes, default_fuzzy=True)
+
+        assert "def foo(x):" in modified
+        assert "def bar(y):" in modified
+        assert len(results) == 2
+        assert all(r.success for r in results)
+        assert results[0].line_number == 1
+        assert results[1].line_number == 4
+
+    def test_batch_edit_partial_success(self):
+        """Some changes fail, others succeed."""
+        content = "def foo():\n    pass\n"
+        changes = [
+            Change(search="def foo():", replace="def foo(x):"),
+            Change(search="NONEXISTENT", replace="..."),
+        ]
+
+        modified, results = apply_batch_edits(content, changes, default_fuzzy=True)
+
+        assert "def foo(x):" in modified
+        assert len(results) == 2
+        assert results[0].success is True
+        assert results[0].index == 0
+        assert results[1].success is False
+        assert results[1].index == 1
+        assert "Pattern not found" in (results[1].error or "")
+
+    def test_batch_edit_overlap_detection(self):
+        """Overlapping changes: first wins, second marked failed."""
+        content = "def foo():\n    pass\n"
+        changes = [
+            Change(search="def foo():", replace="def foo(x):"),
+            Change(search="def foo(", replace="def bar("),  # Overlaps with first
+        ]
+
+        modified, results = apply_batch_edits(content, changes, default_fuzzy=True)
+
+        # First change should succeed
+        assert results[0].success is True
+        # Second change should fail due to overlap
+        assert results[1].success is False
+        assert "Overlaps" in (results[1].error or "")
+
+    def test_batch_edit_preserves_order(self):
+        """Results array matches input order regardless of application order."""
+        content = "line1\nline2\nline3\n"
+        changes = [
+            Change(search="line3", replace="LINE3"),
+            Change(search="line1", replace="LINE1"),
+            Change(search="line2", replace="LINE2"),
+        ]
+
+        modified, results = apply_batch_edits(content, changes, default_fuzzy=True)
+
+        # Results should be in input order
+        assert results[0].index == 0
+        assert results[1].index == 1
+        assert results[2].index == 2
+        assert "LINE1" in modified
+        assert "LINE2" in modified
+        assert "LINE3" in modified
+
+    def test_batch_edit_single_change(self):
+        """Single-item changes array works."""
+        content = "hello world\n"
+        changes = [Change(search="hello", replace="hi")]
+
+        modified, results = apply_batch_edits(content, changes, default_fuzzy=True)
+
+        assert "hi world" in modified
+        assert len(results) == 1
+        assert results[0].success is True
+
+    def test_batch_edit_per_change_fuzzy(self):
+        """Per-change fuzzy override works."""
+        content = "def foo():\n    pass\n"
+        changes = [
+            # Exact match required, won't match fuzzy content
+            Change(search="def fooo():", replace="def bar():", fuzzy=False),
+            # Fuzzy match enabled
+            Change(search="def foo():", replace="def baz():"),
+        ]
+
+        modified, results = apply_batch_edits(content, changes, default_fuzzy=True)
+
+        # First change fails (exact match required, typo in search)
+        assert results[0].success is False
+        # Second change succeeds
+        assert results[1].success is True
+        assert "def baz():" in modified
+
+    def test_batch_edit_file_integration(self):
+        """Test batch_edit_content with actual file."""
+        content = "def foo():\n    return 1\n\ndef bar():\n    return 2\n"
+
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".py") as f:
+            f.write(content)
+            temp_path = f.name
+
+        try:
+            result = batch_edit_content(
+                temp_path,
+                changes=[
+                    Change(search="def foo():", replace="def foo(x):"),
+                    Change(search="def bar():", replace="def bar(y):"),
+                ],
+                preview=True,
+            )
+
+            assert result.success is True
+            assert result.changes_applied == 2
+            assert result.changes_failed == 0
+            assert result.results is not None
+            assert len(result.results) == 2
+            # Preview mode, file unchanged
+            assert Path(temp_path).read_text() == content
+
+        finally:
+            Path(temp_path).unlink()
+
+    def test_batch_edit_file_with_backup(self):
+        """Test batch edit creates backup when not in preview mode."""
+        content = "line1\nline2\n"
+
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as f:
+            f.write(content)
+            temp_path = f.name
+
+        try:
+            result = batch_edit_content(
+                temp_path,
+                changes=[Change(search="line1", replace="LINE1")],
+                preview=False,
+            )
+
+            assert result.success is True
+            assert result.backup_created is not None
+            # File should be modified
+            assert "LINE1" in Path(temp_path).read_text()
+            # Backup should exist
+            assert Path(result.backup_created).exists()
+
+            # Clean up backup
+            Path(result.backup_created).unlink()
+
+        finally:
+            Path(temp_path).unlink()
+
+    def test_batch_edit_all_fail(self):
+        """All changes fail, success should be False."""
+        content = "hello world\n"
+        changes = [
+            Change(search="NONEXISTENT1", replace="..."),
+            Change(search="NONEXISTENT2", replace="..."),
+        ]
+
+        modified, results = apply_batch_edits(content, changes, default_fuzzy=True)
+
+        # Content unchanged
+        assert modified == content
+        assert all(not r.success for r in results)
+
+    def test_batch_edit_failed_includes_similar_matches(self):
+        """Failed changes include similar match suggestions."""
+        content = "def process_data():\n    pass\n"
+        changes = [
+            Change(search="def proccess_data():", replace="def handle_data():"),
+        ]
+
+        modified, results = apply_batch_edits(content, changes, default_fuzzy=False)
+
+        # Should fail (exact match, typo)
+        assert results[0].success is False
+        # Should include similar matches (process_data is similar to proccess_data)
+        if results[0].similar_matches:
+            assert len(results[0].similar_matches) > 0
