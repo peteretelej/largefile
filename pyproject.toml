@@ -1,6 +1,6 @@
 [project]
 name = "largefile"
-version = "0.1.1"
+version = "0.1.2"
 description = "MCP server that helps AI assistants work with large files that exceed context limits"
 readme = "README.md"
 requires-python = ">=3.10"
