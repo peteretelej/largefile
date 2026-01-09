@@ -16,6 +16,11 @@ class Config:
     max_search_results: int = int(os.getenv("LARGEFILE_MAX_SEARCH_RESULTS", "20"))
     context_lines: int = int(os.getenv("LARGEFILE_CONTEXT_LINES", "2"))
 
+    similar_match_limit: int = int(os.getenv("LARGEFILE_SIMILAR_MATCH_LIMIT", "3"))
+    similar_match_threshold: float = float(
+        os.getenv("LARGEFILE_SIMILAR_MATCH_THRESHOLD", "0.6")
+    )
+
     streaming_chunk_size: int = int(os.getenv("LARGEFILE_STREAMING_CHUNK_SIZE", "8192"))
     backup_dir: str = os.getenv(
         "LARGEFILE_BACKUP_DIR", str(Path.home() / ".largefile" / "backups")

@@ -4,9 +4,10 @@ import difflib
 import os
 
 from .config import config
-from .data_models import EditResult
+from .data_models import EditResult, SimilarMatch
 from .exceptions import EditError
 from .file_access import normalize_path, read_file_content, write_file_content
+from .search_engine import find_similar_patterns
 
 
 def generate_diff_preview(original: str, modified: str, search_text: str) -> str:
@@ -41,6 +42,34 @@ def generate_diff_preview(original: str, modified: str, search_text: str) -> str
             preview_lines.append(f"  {line}")
 
     return "\n".join(preview_lines)
+
+
+def generate_suggestion(
+    similar_matches: list[SimilarMatch], fuzzy_enabled: bool
+) -> str:
+    """Generate actionable suggestion based on similar matches found.
+
+    Args:
+        similar_matches: List of similar patterns found in the file
+        fuzzy_enabled: Whether fuzzy matching was enabled for the search
+
+    Returns:
+        Actionable suggestion string for the LLM
+    """
+    if not similar_matches:
+        if fuzzy_enabled:
+            return (
+                "No similar patterns found. Verify the search text exists in the file."
+            )
+        return "No similar patterns found. Try enabling fuzzy matching."
+
+    if fuzzy_enabled:
+        return f"Found {len(similar_matches)} similar pattern(s). Use one as your search text."
+
+    best = similar_matches[0]
+    if best.similarity > 0.9:
+        return f"Found near-match at line {best.line}. Enable fuzzy matching or use exact text."
+    return f"Found {len(similar_matches)} similar pattern(s). Enable fuzzy matching for partial matches."
 
 
 def fuzzy_replace_content(
@@ -154,7 +183,9 @@ def replace_content(
             )
             line_number = match_result[0] if match_result else 0
         except EditError:
-            # No matches found
+            # No matches found - find similar patterns for helpful error
+            similar = find_similar_patterns(original_content, search_text)
+            suggestion = generate_suggestion(similar, fuzzy_enabled=True)
             return EditResult(
                 success=False,
                 preview=f"No matches found for: {search_text}",
@@ -162,9 +193,15 @@ def replace_content(
                 line_number=0,
                 similarity_used=0.0,
                 match_type="none",
+                search_attempted=search_text,
+                fuzzy_enabled=True,
+                similar_matches=similar,
+                suggestion=suggestion,
             )
     else:
-        # No matches found
+        # No matches found - find similar patterns for helpful error
+        similar = find_similar_patterns(original_content, search_text)
+        suggestion = generate_suggestion(similar, fuzzy_enabled=False)
         return EditResult(
             success=False,
             preview=f"No exact matches found for: {search_text}",
@@ -172,6 +209,10 @@ def replace_content(
             line_number=0,
             similarity_used=0.0,
             match_type="none",
+            search_attempted=search_text,
+            fuzzy_enabled=False,
+            similar_matches=similar,
+            suggestion=suggestion,
         )
 
     # Generate preview

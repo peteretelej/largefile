@@ -347,7 +347,7 @@ def edit_content(
         absolute_file_path, search_text, replace_text, fuzzy, preview
     )
 
-    return {
+    response = {
         "success": result.success,
         "preview": result.preview,
         "changes_made": result.changes_made,
@@ -356,3 +356,19 @@ def edit_content(
         "line_number": result.line_number,
         "backup_created": result.backup_created,
     }
+
+    # Include enhanced error info when edit fails
+    if not result.success:
+        if result.search_attempted:
+            response["search_attempted"] = result.search_attempted
+        if result.fuzzy_enabled is not None:
+            response["fuzzy_enabled"] = result.fuzzy_enabled
+        if result.suggestion:
+            response["suggestion"] = result.suggestion
+        if result.similar_matches:
+            response["similar_matches"] = [
+                {"line": m.line, "content": m.content, "similarity": m.similarity}
+                for m in result.similar_matches
+            ]
+
+    return response

@@ -1,4 +1,13 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+
+@dataclass
+class SimilarMatch:
+    """A similar pattern found when search fails."""
+
+    line: int
+    content: str  # Truncated to 100 chars
+    similarity: float  # 0.0-1.0
 
 
 @dataclass
@@ -42,3 +51,8 @@ class EditResult:
     similarity_used: float
     match_type: str = "exact"
     backup_created: str | None = None
+    # Enhanced error fields
+    search_attempted: str | None = None
+    fuzzy_enabled: bool | None = None
+    similar_matches: list[SimilarMatch] = field(default_factory=list)
+    suggestion: str | None = None

@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 
 from .config import config
+from .data_models import SimilarMatch
 from .exceptions import SearchError
 from .file_access import read_file_lines
 
@@ -89,3 +90,67 @@ def search_file(file_path: str, pattern: str, fuzzy: bool = True) -> list[Search
         return combine_results(exact_matches, fuzzy_matches)
 
     return exact_matches
+
+
+def find_similar_patterns(
+    content: str,
+    search_text: str,
+    limit: int | None = None,
+    min_similarity: float | None = None,
+) -> list[SimilarMatch]:
+    """Find lines similar to search_text using rapidfuzz.
+
+    Used to provide actionable suggestions when search/edit operations fail.
+
+    Args:
+        content: File content to search
+        search_text: Pattern that wasn't found
+        limit: Max matches to return (defaults to config.similar_match_limit)
+        min_similarity: Min similarity threshold (defaults to config.similar_match_threshold)
+
+    Returns:
+        List of SimilarMatch objects sorted by similarity (highest first)
+    """
+    try:
+        from rapidfuzz import fuzz
+    except ImportError:
+        return []
+
+    limit = limit if limit is not None else config.similar_match_limit
+    min_similarity = (
+        min_similarity if min_similarity is not None else config.similar_match_threshold
+    )
+
+    lines = content.splitlines()
+    candidates: list[SimilarMatch] = []
+    search_lines = search_text.splitlines()
+    window_size = len(search_lines)
+
+    if window_size == 1:
+        # Single line comparison
+        for i, line in enumerate(lines):
+            similarity = fuzz.ratio(search_text, line) / 100.0
+            if similarity >= min_similarity:
+                candidates.append(
+                    SimilarMatch(
+                        line=i + 1,
+                        content=line[:100],
+                        similarity=round(similarity, 2),
+                    )
+                )
+    else:
+        # Multi-line: sliding window comparison
+        for i in range(len(lines) - window_size + 1):
+            window = "\n".join(lines[i : i + window_size])
+            similarity = fuzz.ratio(search_text, window) / 100.0
+            if similarity >= min_similarity:
+                candidates.append(
+                    SimilarMatch(
+                        line=i + 1,
+                        content=window[:100].replace("\n", "↵"),
+                        similarity=round(similarity, 2),
+                    )
+                )
+
+    candidates.sort(key=lambda x: x.similarity, reverse=True)
+    return candidates[:limit]
