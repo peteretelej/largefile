@@ -12,24 +12,27 @@ MCP server using **search/replace blocks** (proven by Aider, Cline, RooCode) wit
 
 ```mermaid
 graph TD
-    A[AI Assistant] --> B[4 MCP Tools]
-    
+    A[AI Assistant] --> B[5 MCP Tools]
+
     B --> C[get_overview]
-    B --> D[search_content] 
+    B --> D[search_content]
     B --> E[read_content]
     B --> F[edit_content]
-    
-    C --> G[Tree-sitter<br/>File Metadata]
-    D --> H[Search Engine<br/>Fuzzy Matching]
-    E --> I[Tree-sitter<br/>Semantic Chunks]
-    F --> J[Search & Replace<br/>Backup System]
-    
-    G --> K[File Access Core]
-    H --> K
-    I --> K
-    J --> K
-    
-    K --> L[Target File<br/>Memory Strategy:<br/>&lt;50MB: RAM<br/>50-500MB: mmap<br/>&gt;500MB: Stream]
+    B --> G[revert_edit]
+
+    C --> H[Tree-sitter<br/>File Metadata]
+    D --> I[Search Engine<br/>Fuzzy Matching]
+    E --> J[Tree-sitter<br/>Semantic Chunks<br/>+ Tail Mode]
+    F --> K[Search & Replace<br/>Batch Editing<br/>Smart Errors]
+    G --> L[Backup Management<br/>Restore System]
+
+    H --> M[File Access Core]
+    I --> M
+    J --> M
+    K --> M
+    L --> M
+
+    M --> N[Target File<br/>Memory Strategy:<br/>&lt;50MB: RAM<br/>50-500MB: mmap<br/>&gt;500MB: Stream]
 ```
 
 ## Tool Workflow Sequences
@@ -123,7 +126,7 @@ File � Canonicalize � Hash � Session Management � Tools
     [Overview] [Search+Fuzzy] [Semantic Read] [Search/Replace Edit]
 ```
 
-## Tools (Simplified to 4)
+## Tools (5 Total)
 
 ### Research-Backed Progressive Workflow
 
@@ -151,33 +154,46 @@ def search_content(
 
 **Key improvement**: Fuzzy matching via Levenshtein distance handles real-world formatting variations. Returns semantic context and smart line truncation.
 
-**3. Read Tool** - Semantic chunks instead of arbitrary lines:
+**3. Read Tool** - Semantic chunks and tail mode:
 
 ```python
 @mcp.tool()
 def read_content(
     absolute_file_path: str,
     target: Union[int, str],  # Line number or pattern
-    mode: str = "semantic"    # semantic|lines|function
-) -> str
+    mode: str = "lines"       # lines|semantic|tail
+) -> dict
 ```
 
-Uses Tree-sitter to return complete functions/classes/blocks instead of arbitrary line ranges.
+Uses Tree-sitter to return complete functions/classes/blocks. **Tail mode** reads last N lines efficiently using `deque` for log file analysis.
 
-**4. Edit Tool** - Search/replace primary (NOT line-based):
+**4. Edit Tool** - Search/replace with batch support:
 
 ```python
 @mcp.tool()
 def edit_content(
     absolute_file_path: str,
-    search_text: str,
-    replace_text: str,
+    search_text: str = None,     # Single edit mode
+    replace_text: str = None,    # Single edit mode
+    changes: list[dict] = None,  # Batch edit mode
     fuzzy: bool = True,
     preview: bool = True
-) -> EditResult
+) -> dict
 ```
 
-**Primary editing method** using search/replace blocks. Fuzzy matching handles whitespace variations. Eliminates line number confusion that causes LLM errors.
+**Primary editing method** using search/replace blocks. Supports **batch editing** for multiple changes atomically. **Enhanced error messages** return similar match suggestions when patterns aren't found.
+
+**5. Revert Tool** - Backup restoration:
+
+```python
+@mcp.tool()
+def revert_edit(
+    absolute_file_path: str,
+    backup_id: str = None  # Defaults to most recent
+) -> dict
+```
+
+**Recovery tool** that reverts files to previous backup states. Current state is preserved as new backup before reverting, ensuring no work is lost.
 
 ### Enhanced Data Models
 
@@ -259,34 +275,36 @@ class EditResult:
 }
 ```
 
-## Project Structure (Simplified)
+## Project Structure
 
 ```
 src/
 ├── server.py        # MCP server entry point
-├── tools.py         # 4 core MCP tools
-├── search_engine.py # Fuzzy search engine (rapidfuzz)
+├── tools.py         # 5 MCP tools (get_overview, search_content, read_content, edit_content, revert_edit)
+├── search_engine.py # Fuzzy search engine (rapidfuzz) + similar match suggestions
 ├── tree_parser.py   # Tree-sitter integration + AST caching
-├── editor.py        # Search/replace engine (NOT line-based)
-├── file_access.py   # File management + caching
+├── editor.py        # Search/replace engine with batch support
+├── file_access.py   # File management + backup system + tail mode
+├── data_models.py   # Dataclass definitions (BackupInfo, Change, ChangeResult, etc.)
 └── config.py        # Environment-based configuration
 ```
 
 ## Implementation Phases
 
-**Phase 1**: Core search/replace engine  
-**Phase 2**: Fuzzy matching (rapidfuzz integration)  
-**Phase 3**: Tree-sitter semantic features  
+**Phase 1**: Core search/replace engine
+**Phase 2**: Fuzzy matching (rapidfuzz integration)
+**Phase 3**: Tree-sitter semantic features
 **Phase 4**: Performance optimization + line truncation
+**Phase 5** (v0.2.0): Enhanced errors, tail mode, backup management, revert_edit, batch editing
 
 ## Scope
 
-**In**: Text files (auto-detected encoding), **search/replace editing**, fuzzy pattern matching, semantic structure, hierarchical navigation  
+**In**: Text files (auto-detected encoding), **search/replace editing**, fuzzy pattern matching, semantic structure, hierarchical navigation, **batch operations**, **backup/revert**
 **Out**: Binary files, multi-file ops, collaboration, version control, **line-based editing**
 
 ## LLM Usage Patterns
 
-**Design Philosophy**: 4 simple, composable tools that LLMs can chain creatively.
+**Design Philosophy**: 5 focused, composable tools that LLMs can chain creatively.
 
 ### Common Workflows
 
@@ -352,6 +370,20 @@ specific_func = search_content(file_path, "def process_data")
 implementation = read_content(file_path, specific_func[0].line_number)
 ```
 
+**Safe Refactoring (v0.2.0)**
+```
+1. search_content("old_name") → Find all usages
+2. edit_content(changes=[...]) → Batch rename with preview
+3. If something breaks: revert_edit() → Instant recovery
+```
+
+**Log Analysis (v0.2.0)**
+```
+1. read_content(file, 1000, mode="tail") → Last 1000 lines
+2. search_content("ERROR") → Find issues in recent entries
+3. read_content(error.line_number) → Get context
+```
+
 ## Research Validation
 
 - **Search/replace blocks**: 3x more reliable than line numbers (Aider, Cline, RooCode)
@@ -359,3 +391,5 @@ implementation = read_content(file_path, specific_func[0].line_number)
 - **Semantic chunks**: Tree-sitter beats arbitrary line ranges
 - **Progressive disclosure**: Proven workflow pattern maintained
 - **Simple composability**: LLMs excel at chaining focused tools
+- **Error recovery** (v0.2.0): Similar match suggestions reduce retry cycles
+- **Batch operations** (v0.2.0): Atomic multi-edit prevents drift and token waste

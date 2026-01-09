@@ -4,14 +4,17 @@ Detailed documentation for the Largefile MCP Server tools.
 
 ## Overview
 
-The Largefile MCP Server provides 4 core tools for working with large text files:
+The Largefile MCP Server provides 5 tools for working with large text files:
 
-1. **get_overview** - File structure analysis
-2. **search_content** - Pattern search with fuzzy matching  
-3. **read_content** - Targeted content reading
-4. **edit_content** - Search/replace editing
+| Tool | Purpose |
+|------|---------|
+| **get_overview** | File structure analysis with Tree-sitter semantic outline |
+| **search_content** | Pattern search with fuzzy matching and context |
+| **read_content** | Targeted reading by line, pattern, or tail mode |
+| **edit_content** | Search/replace editing with batch support |
+| **revert_edit** | Recover from bad edits via backup restoration |
 
-All tools require absolute file paths and support configurable text encoding.
+All tools require absolute file paths and support auto-detected text encoding.
 
 ## Tools
 
@@ -89,7 +92,7 @@ for result in results:
 
 ### read_content
 
-Read targeted content by line number or pattern with semantic chunking.
+Read targeted content by line number, pattern, or from end of file.
 
 **Signature:**
 ```python
@@ -97,73 +100,173 @@ def read_content(
     absolute_file_path: str,
     target: Union[int, str],
     mode: str = "lines"
-) -> str
+) -> dict
 ```
 
 **Parameters:**
 - `absolute_file_path`: Absolute path to the file (required)
 - `target`: Line number (int) or search pattern (str) to locate content (required)
-- `mode`: Reading mode - "lines", "semantic", or "function" (default: "lines")
+- `mode`: Reading mode (default: "lines")
 
 **Reading Modes:**
-- `"lines"`: Read specific line number or lines around pattern match
-- `"semantic"`: Use Tree-sitter to read complete semantic blocks (functions, classes)
-- `"function"`: Read entire function/method containing the target
+| Mode | Description | Target |
+|------|-------------|--------|
+| `"lines"` | Read from specific line number or around pattern match | Line number or pattern |
+| `"semantic"` | Use Tree-sitter to read complete semantic blocks | Line number or pattern |
+| `"tail"` | Read last N lines from end of file (efficient for logs) | Number of lines (int) |
 
-**Returns:** String containing the requested content.
+**Returns:** Dictionary with:
+- `content`: The requested content string
+- `start_line`, `end_line`: Line range of returned content
+- `total_lines`: Total lines in file
+- `mode`: The mode used
 
 **Example:**
 ```python
-# Read specific line
+# Read specific line range
 content = read_content("/path/to/file.py", 42, mode="lines")
 
 # Read complete function containing pattern
 content = read_content("/path/to/file.py", "def main", mode="semantic")
 
-# Read function semantically by line number
-content = read_content("/path/to/file.py", 100, mode="function")
+# Read last 500 lines of a log file (no need to know total lines)
+content = read_content("/path/to/production.log", 500, mode="tail")
+# Returns: {"content": "...", "lines_read": 500, "total_lines": 150000}
 ```
 
 ### edit_content
 
-Primary editing method using search/replace blocks (not line-based).
+Primary editing method using search/replace blocks. Supports single edits and batch operations.
 
 **Signature:**
 ```python
 def edit_content(
     absolute_file_path: str,
-    search_text: str,
-    replace_text: str,
+    search_text: str = None,        # Single edit mode
+    replace_text: str = None,       # Single edit mode
+    changes: list[dict] = None,     # Batch edit mode
     fuzzy: bool = True,
     preview: bool = True
-) -> EditResult
+) -> dict
 ```
 
 **Parameters:**
 - `absolute_file_path`: Absolute path to the file (required)
-- `search_text`: Text to find and replace (required)
-- `replace_text`: Replacement text (required)
-- `fuzzy`: Enable fuzzy matching for search_text (default: True)
+- `search_text`: Text to find and replace (single edit mode)
+- `replace_text`: Replacement text (single edit mode)
+- `changes`: Array of `{search, replace, fuzzy?}` objects (batch edit mode)
+- `fuzzy`: Enable fuzzy matching (default: True, can be overridden per-change)
 - `preview`: Show preview without making changes (default: True)
 
-**Returns:** `EditResult` object with:
-- `success`: True if operation succeeded
-- `preview`: Diff preview showing before/after changes
-- `changes_made`: Number of replacements made
-- `line_number`: Line where change occurred
-- `similarity_used`: Similarity score if fuzzy matching was used
-- `backup_created`: Path to backup file (if preview=False)
+> **Note:** Use either `search_text`/`replace_text` OR `changes`, not both.
 
-**Example:**
+**Returns (Single Edit):**
+- `success`: True if edit succeeded
+- `preview`: Diff preview showing before/after
+- `changes_made`: Number of replacements
+- `line_number`: Line where change occurred
+- `similarity_used`: Fuzzy match score (if used)
+- `backup_created`: Backup path (if preview=False)
+- `similar_matches`: Suggestions if edit failed (see Enhanced Errors below)
+
+**Returns (Batch Edit):**
+- `success`: True if all changes succeeded
+- `changes_applied`: Count of successful changes
+- `changes_failed`: Count of failed changes
+- `results`: Per-change results with individual status
+- `preview`: Combined diff preview
+- `backup_created`: Backup path (if preview=False)
+
+**Example - Single Edit:**
 ```python
 # Preview mode (safe, no changes made)
 result = edit_content("/path/to/file.py", "old_function_name", "new_function_name", preview=True)
-print(result.preview)
+print(result["preview"])
 
 # Apply changes (creates backup)
-if result.success:
-    result = edit_content("/path/to/file.py", "old_function_name", "new_function_name", preview=False)
-    print(f"Backup created at: {result.backup_created}")
+result = edit_content("/path/to/file.py", "old_function_name", "new_function_name", preview=False)
+print(f"Backup created at: {result['backup_created']}")
+```
+
+**Example - Batch Edit:**
+```python
+# Apply multiple changes atomically
+result = edit_content(
+    "/path/to/file.py",
+    changes=[
+        {"search": "old_func_1", "replace": "new_func_1"},
+        {"search": "old_func_2", "replace": "new_func_2"},
+        {"search": "exact_match_only", "replace": "replacement", "fuzzy": False},
+    ],
+    preview=True
+)
+
+# Check individual results
+for r in result["results"]:
+    status = "OK" if r["success"] else f"FAILED: {r.get('error')}"
+    print(f"Change {r['index']}: {status}")
+```
+
+**Enhanced Error Messages:**
+
+When an edit fails (pattern not found), the response includes helpful suggestions:
+```python
+{
+    "success": False,
+    "search_attempted": "def proces_data(",
+    "similar_matches": [
+        {"line": 42, "content": "def process_data(", "similarity": 0.92},
+        {"line": 156, "content": "def process_data_batch(", "similarity": 0.85}
+    ],
+    "suggestion": "Did you mean 'def process_data(' on line 42?"
+}
+```
+
+### revert_edit
+
+Recover from bad edits by reverting to a previous backup state.
+
+**Signature:**
+```python
+def revert_edit(
+    absolute_file_path: str,
+    backup_id: str = None
+) -> dict
+```
+
+**Parameters:**
+- `absolute_file_path`: Absolute path to the file to revert (required)
+- `backup_id`: Timestamp ID of backup to restore (optional, defaults to most recent)
+
+**Returns:**
+- `success`: True if revert succeeded
+- `reverted_to`: Info about the backup that was restored
+- `current_saved_as`: Info about backup created from current state (before revert)
+- `available_backups`: List of all available backups for this file
+- `error`: Error message if revert failed
+
+**Example:**
+```python
+# Revert to most recent backup
+result = revert_edit("/path/to/file.py")
+print(f"Reverted to: {result['reverted_to']['timestamp']}")
+print(f"Current state saved as: {result['current_saved_as']['id']}")
+
+# Revert to specific backup
+result = revert_edit("/path/to/file.py", backup_id="20240115_143022")
+
+# List available backups without reverting
+result = revert_edit("/path/to/nonexistent.py")  # Returns available_backups
+```
+
+**Backup Info Structure:**
+```python
+{
+    "id": "20240115_143022",           # Timestamp ID for revert_edit
+    "timestamp": "2024-01-15 14:30:22", # Human-readable timestamp
+    "size": 4523,                       # File size in bytes
+    "path": "/home/user/.largefile/backups/file.abc123.20240115_143022"
+}
 ```
 
 ## Data Models
@@ -206,7 +309,7 @@ class SearchResult:
     submatches: List[Dict[str, int]]  # [{"start": 10, "end": 15}]
 ```
 
-### EditResult
+### EditResult (Single Edit)
 ```python
 @dataclass
 class EditResult:
@@ -214,8 +317,58 @@ class EditResult:
     preview: str
     changes_made: int
     line_number: int
+    match_type: str              # "exact" or "fuzzy"
     similarity_used: float
     backup_created: Optional[str] = None
+    # Enhanced error fields (when success=False):
+    search_attempted: Optional[str] = None
+    fuzzy_enabled: Optional[bool] = None
+    suggestion: Optional[str] = None
+    similar_matches: Optional[List[SimilarMatch]] = None
+```
+
+### BatchEditResult
+```python
+@dataclass
+class BatchEditResult:
+    success: bool                # True if all changes succeeded
+    changes_applied: int
+    changes_failed: int
+    results: List[ChangeResult]  # Per-change results
+    preview: str
+    backup_created: Optional[str] = None
+```
+
+### ChangeResult
+```python
+@dataclass
+class ChangeResult:
+    index: int                   # Position in changes array
+    success: bool
+    line_number: Optional[int] = None
+    match_type: Optional[str] = None
+    similarity: Optional[float] = None
+    error: Optional[str] = None
+    similar_matches: Optional[List[SimilarMatch]] = None
+```
+
+### SimilarMatch
+```python
+@dataclass
+class SimilarMatch:
+    line: int                    # Line number
+    content: str                 # Matching line content
+    similarity: float            # Similarity score (0.0-1.0)
+```
+
+### BackupInfo
+```python
+@dataclass
+class BackupInfo:
+    id: str                      # Timestamp ID (e.g., "20240115_143022")
+    timestamp: str               # Human-readable timestamp
+    size: int                    # File size in bytes
+    path: str                    # Full path to backup file
 ```
 
 ## Error Handling

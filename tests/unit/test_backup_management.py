@@ -237,3 +237,53 @@ class TestCreateBackupWithCleanup:
                 assert Path(backup_info.path).read_text() == "test content for backup"
 
         Path(temp_path).unlink()
+
+
+class TestBackupEdgeCases:
+    """Test backup edge cases and error handling."""
+
+    def test_list_backups_skips_malformed_files(self):
+        """list_backups gracefully skips malformed backup filenames."""
+        with tempfile.TemporaryDirectory() as backup_dir:
+            # Create malformed backup files that don't match expected format
+            Path(backup_dir, "file.txt.abcd1234").touch()  # Missing timestamp
+            Path(
+                backup_dir, "file.txt.abcd1234.notanumber"
+            ).touch()  # Invalid timestamp
+            Path(backup_dir, "randomfile.txt").touch()  # No hash at all
+
+            with patch("src.file_access.config") as mock_config:
+                mock_config.backup_dir = backup_dir
+
+                # Should return empty list, not crash
+                backups = list_backups("/some/path/file.txt")
+                assert backups == []
+
+    def test_list_backups_filters_by_file_path(self):
+        """list_backups only returns backups for the specific file."""
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as f:
+            f.write("test content")
+            temp_path = f.name
+
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".py") as f2:
+            f2.write("other content")
+            other_path = f2.name
+
+        with tempfile.TemporaryDirectory() as backup_dir:
+            with patch("src.file_access.config") as mock_config:
+                mock_config.backup_dir = backup_dir
+                mock_config.max_backups = 10
+                mock_config.memory_threshold = 50 * 1024 * 1024
+
+                # Create backups for both files
+                create_backup(temp_path)
+                create_backup(other_path)
+
+                # List backups for first file only
+                backups = list_backups(temp_path)
+
+                # Should only have backup for temp_path
+                assert len(backups) == 1
+
+        Path(temp_path).unlink()
+        Path(other_path).unlink()

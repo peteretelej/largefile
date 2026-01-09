@@ -106,17 +106,56 @@ Configure automatic backup behavior:
 LARGEFILE_BACKUP_DIR="/path/to/backups"
 
 # Maximum number of backups to keep per file (default: 10)
-LARGEFILE_MAX_BACKUPS_PER_FILE=10
-
-# Compress old backups (default: true)
-LARGEFILE_COMPRESS_BACKUPS=true
+LARGEFILE_MAX_BACKUPS=10
 ```
 
 **Backup Behavior:**
 - Automatic backup created before every edit operation
-- Backups include timestamp and original filename
-- Old backups automatically cleaned up based on `MAX_BACKUPS_PER_FILE`
-- Backups are compressed with gzip to save space
+- Backups named: `{filename}.{path_hash}.{timestamp}` for uniqueness
+- Old backups automatically cleaned up based on `MAX_BACKUPS`
+- Use `revert_edit` tool to restore any backup
+
+**Backup Naming Convention:**
+```
+example.py.a1b2c3d4.20240115_143022
+│         │        │
+│         │        └── Timestamp (YYYYMMDD_HHMMSS)
+│         └── Path hash (first 8 chars of SHA-256)
+└── Original filename
+```
+
+## Error Recovery
+
+Configure enhanced error messages when edits fail:
+
+```bash
+# Maximum similar matches to show on edit failure (default: 3)
+LARGEFILE_SIMILAR_MATCH_LIMIT=3
+
+# Minimum similarity score to include in suggestions (default: 0.6)
+LARGEFILE_SIMILAR_MATCH_THRESHOLD=0.6
+```
+
+**Error Recovery Behavior:**
+- When `edit_content` fails to find a pattern, it searches for similar lines
+- Returns up to `SIMILAR_MATCH_LIMIT` suggestions with similarity scores
+- Only shows matches above `SIMILAR_MATCH_THRESHOLD` (0.0-1.0 scale)
+- Includes actionable suggestion like "Did you mean X on line Y?"
+
+## Batch Editing
+
+Configure batch edit limits:
+
+```bash
+# Maximum changes per batch edit call (default: 50)
+LARGEFILE_MAX_BATCH_CHANGES=50
+```
+
+**Batch Editing Behavior:**
+- Prevents excessively large batch operations
+- All changes in a batch share a single backup
+- Partial success is supported (some changes can fail)
+- Per-change results include individual error details
 
 ## Logging and Debug
 

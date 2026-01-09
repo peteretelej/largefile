@@ -1,19 +1,24 @@
 # Largefile MCP Server
 
-MCP server that helps your AI assistant work with large files that exceed context limits.
+An MCP server that enables AI assistants to work with large files that exceed context limits.
 
 [![CI](https://img.shields.io/github/actions/workflow/status/peteretelej/largefile/ci.yml?branch=main&logo=github)](https://github.com/peteretelej/largefile/actions/workflows/ci.yml) [![codecov](https://codecov.io/gh/peteretelej/largefile/branch/main/graph/badge.svg)](https://codecov.io/gh/peteretelej/largefile) [![PyPI version](https://img.shields.io/pypi/v/largefile.svg)](https://pypi.org/project/largefile/) [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff) [![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
 
-This local MCP server enables AI assistants to navigate, search, and edit files of any size without loading entire content into memory. It provides targeted access to specific lines, patterns, and sections while maintaining file integrity using research-backed search/replace editing instead of error-prone line-based operations. Perfect for working with large codebases, generated files, logs, and datasets that would otherwise be inaccessible due to context window limitations.
+Navigate, search, and edit files of any size without loading entire content into memory. Largefile provides targeted access to specific lines, patterns, and sections while maintaining file integrity using research-backed search/replace editing instead of error-prone line-based operations.
+
+Perfect for working with large codebases, generated files, logs, and datasets that would otherwise be inaccessible due to context window limitations.
 
 ## MCP Tools
 
-The server provides 4 core tools that work together for progressive file exploration:
+Five tools that work together for progressive file exploration:
 
-- **`get_overview`** - Get file structure with Tree-sitter semantic analysis, line counts, and suggested search patterns
-- **`search_content`** - Find patterns with fuzzy matching, context lines, and semantic information
-- **`read_content`** - Read targeted content by line number or pattern with semantic chunking (complete functions/classes)
-- **`edit_content`** - Primary editing via search/replace blocks with automatic backups and preview mode
+| Tool | Purpose |
+|------|---------|
+| **`get_overview`** | File structure with Tree-sitter semantic analysis, line counts, and search hints |
+| **`search_content`** | Pattern search with fuzzy matching, context lines, and semantic information |
+| **`read_content`** | Targeted reading by line number, pattern, or tail mode for log files |
+| **`edit_content`** | Search/replace editing with batch support, automatic backups, and preview mode |
+| **`revert_edit`** | Recover from bad edits by reverting to previous backup states |
 
 ## Quick Start
 
@@ -93,13 +98,17 @@ edit_result = edit_content(
 **AI Assistant workflow:**
 
 1. Get log file overview
-2. Search for error patterns
-3. Read context around critical issues
+2. Read the last N lines efficiently with tail mode
+3. Search for error patterns in recent entries
 
 ```python
 # AI gets log file overview
 overview = get_overview("/path/to/production.log")
 # Returns: 150,000 lines, 2.1GB file size
+
+# AI reads the last 1000 lines efficiently (no need to know total line count)
+recent = read_content("/path/to/production.log", 1000, mode="tail")
+# Returns: Last 1000 lines without loading entire file
 
 # AI searches for critical errors
 errors = search_content("/path/to/production.log", "CRITICAL|ERROR", fuzzy=True, max_results=10)
@@ -140,6 +149,49 @@ result = edit_content(
     preview=False
 )
 # Creates automatic backup before changes
+```
+
+### Batch Editing Multiple Patterns
+
+**AI Question:** _"Update all the deprecated API calls in this file - there are several different ones to change."_
+
+**AI Assistant workflow:**
+
+1. Identify all deprecated patterns
+2. Apply multiple changes atomically in one call
+
+```python
+# AI applies multiple changes in a single atomic operation
+result = edit_content(
+    "/path/to/api_client.py",
+    changes=[
+        {"search": "client.get_user(", "replace": "client.fetch_user("},
+        {"search": "client.post_data(", "replace": "client.send_data("},
+        {"search": "client.delete_item(", "replace": "client.remove_item("},
+    ],
+    preview=True
+)
+# Returns per-change results with success/failure status
+# All changes applied atomically - partial success is reported
+```
+
+### Recovering from Bad Edits
+
+**AI Question:** _"That last edit broke something. Can you undo it?"_
+
+**AI Assistant workflow:**
+
+1. List available backups
+2. Revert to previous state (current state is preserved as new backup)
+
+```python
+# AI reverts to the most recent backup
+result = revert_edit("/path/to/broken_file.py")
+# Current state saved as backup, file restored to previous version
+
+# Or revert to a specific backup by ID
+result = revert_edit("/path/to/broken_file.py", backup_id="20240115_143022")
+# Returns: available_backups list for reference
 ```
 
 ### Exploring API Documentation
@@ -197,23 +249,34 @@ LARGEFILE_MEMORY_THRESHOLD_MB=50        # Memory loading limit
 LARGEFILE_MMAP_THRESHOLD_MB=500         # Memory mapping limit
 
 # Search settings
-LARGEFILE_FUZZY_THRESHOLD=0.8           # Fuzzy match sensitivity
-LARGEFILE_MAX_SEARCH_RESULTS=20         # Result limit
-LARGEFILE_CONTEXT_LINES=2               # Context window
+LARGEFILE_FUZZY_THRESHOLD=0.8           # Fuzzy match sensitivity (0.0-1.0)
+LARGEFILE_MAX_SEARCH_RESULTS=20         # Result limit per search
+LARGEFILE_CONTEXT_LINES=2               # Context lines around matches
+
+# Error recovery
+LARGEFILE_SIMILAR_MATCH_LIMIT=3         # Similar matches shown on edit failure
+LARGEFILE_SIMILAR_MATCH_THRESHOLD=0.6   # Min similarity for suggestions
+
+# Backup management
+LARGEFILE_BACKUP_DIR="~/.largefile/backups"  # Backup location
+LARGEFILE_MAX_BACKUPS=10                # Backups retained per file
+
+# Batch editing
+LARGEFILE_MAX_BATCH_CHANGES=50          # Max changes per batch call
 
 # Performance
 LARGEFILE_ENABLE_TREE_SITTER=true       # Semantic features
-LARGEFILE_BACKUP_DIR=".largefile_backups" # Backup location
 ```
 
 ## Key Features
 
-- **Search/replace primary**: Eliminates LLM line number errors
-- **Fuzzy matching**: Handles whitespace and formatting variations
-- **Atomic operations**: File integrity with automatic backups
-- **Semantic awareness**: Tree-sitter integration for code structure
-- **Memory efficient**: Handles files of any size without context limits
-- **Error recovery**: Graceful degradation with clear error messages
+- **Search/replace editing** - Eliminates LLM line number errors with fuzzy matching
+- **Batch operations** - Apply multiple changes atomically in one call
+- **Smart error recovery** - Failed edits show similar matches with suggestions
+- **Backup & revert** - Automatic backups with full revert capability
+- **Tail mode** - Read log file endings without knowing total line count
+- **Semantic awareness** - Tree-sitter integration for code structure
+- **Memory efficient** - Handles files of any size via tiered access strategy
 
 ## Documentation
 

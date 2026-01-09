@@ -142,7 +142,11 @@ result = edit_content("/path/to/docs.md", "v1.0", "v2.0", preview=False)
 overview = get_overview("/path/to/production.log")
 # Returns: 150,000 lines, 2.1GB file size
 
-# AI searches for critical errors
+# AI reads last 2000 lines efficiently using tail mode
+recent = read_content("/path/to/production.log", 2000, mode="tail")
+# No need to know total line count - just get the end of the file
+
+# AI searches for critical errors in recent entries
 errors = search_content("/path/to/production.log", "CRITICAL|ERROR", fuzzy=True, max_results=10)
 
 # AI examines context around each error
@@ -364,4 +368,154 @@ for section in data_sections:
     # Process each section individually
 ```
 
-These examples demonstrate how AI assistants use the Largefile MCP Server to handle real-world scenarios with large files, from code analysis to refactoring to data processing.
+## v0.2.0 Feature Examples
+
+### Batch Editing - Multiple Changes at Once
+
+**AI Question:** *"Update all the deprecated API methods in this file - there are about 5 different ones."*
+
+**AI Assistant workflow:**
+```python
+# AI applies all changes in a single atomic operation
+result = edit_content(
+    "/path/to/api_client.py",
+    changes=[
+        {"search": "client.get_user(id)", "replace": "client.fetch_user(id)"},
+        {"search": "client.post_data(payload)", "replace": "client.send_data(payload)"},
+        {"search": "response.status", "replace": "response.status_code"},
+        {"search": "from old_api import", "replace": "from new_api import"},
+        {"search": "API_V1_URL", "replace": "API_V2_URL"},
+    ],
+    preview=True
+)
+
+# Check results - partial success is supported
+print(f"Applied: {result['changes_applied']}, Failed: {result['changes_failed']}")
+
+# Review individual results
+for r in result["results"]:
+    if r["success"]:
+        print(f"Change {r['index']}: OK at line {r['line_number']}")
+    else:
+        print(f"Change {r['index']}: FAILED - {r['error']}")
+        if r.get("similar_matches"):
+            print(f"  Did you mean: {r['similar_matches'][0]['content']}?")
+```
+
+### Error Recovery with Similar Match Suggestions
+
+**AI Question:** *"Replace the function name 'proces_data' with 'transform_data'."* (typo in search)
+
+**AI Assistant workflow:**
+```python
+# AI attempts edit with typo
+result = edit_content(
+    "/path/to/code.py",
+    search_text="def proces_data(",  # Typo!
+    replace_text="def transform_data(",
+    preview=True
+)
+
+# Result includes helpful suggestions
+if not result["success"]:
+    print(f"Search failed for: {result['search_attempted']}")
+    print(f"Suggestion: {result['suggestion']}")
+
+    # Similar matches help identify the correct pattern
+    for match in result["similar_matches"]:
+        print(f"  Line {match['line']}: {match['content']} (similarity: {match['similarity']:.0%})")
+
+    # Output:
+    # Search failed for: def proces_data(
+    # Suggestion: Did you mean 'def process_data(' on line 42?
+    #   Line 42: def process_data( (similarity: 93%)
+    #   Line 156: def process_data_batch( (similarity: 85%)
+```
+
+### Reverting Bad Edits
+
+**AI Question:** *"That last change broke something. Can you undo it?"*
+
+**AI Assistant workflow:**
+```python
+# AI reverts to the most recent backup
+result = revert_edit("/path/to/broken_code.py")
+
+if result["success"]:
+    print(f"Reverted to: {result['reverted_to']['timestamp']}")
+    print(f"Your broken version saved as: {result['current_saved_as']['id']}")
+
+    # Can always go back if the revert was wrong
+    print("Available backups:")
+    for backup in result["available_backups"]:
+        print(f"  {backup['id']} - {backup['timestamp']} ({backup['size']} bytes)")
+
+# Or revert to a specific earlier version
+result = revert_edit("/path/to/code.py", backup_id="20240115_100000")
+```
+
+### Tail Mode for Log Analysis
+
+**AI Question:** *"Check the last 500 lines of this huge log file for errors."*
+
+**AI Assistant workflow:**
+```python
+# No need to get_overview first or calculate line numbers
+# Just read directly from the end
+
+# Get last 500 lines efficiently
+recent = read_content("/path/to/huge.log", 500, mode="tail")
+print(f"Read {recent['lines_read']} lines from file with {recent['total_lines']} total lines")
+
+# Now search within those recent lines
+# Or process the content directly
+if "ERROR" in recent["content"]:
+    print("Found errors in recent log entries")
+
+# Tail mode works with any file size - uses memory-efficient deque
+giant_log = "/path/to/10gb_production.log"
+last_1000 = read_content(giant_log, 1000, mode="tail")
+# Returns quickly without loading entire file
+```
+
+### Combined Workflow - Refactor with Safety Net
+
+**AI Question:** *"Rename 'UserManager' to 'UserService' throughout the codebase file, but make sure I can undo if something breaks."*
+
+**AI Assistant workflow:**
+```python
+# Step 1: Find all occurrences
+usages = search_content("/path/to/app.py", "UserManager", fuzzy=False, max_results=50)
+print(f"Found {len(usages['results'])} occurrences")
+
+# Step 2: Preview batch changes
+result = edit_content(
+    "/path/to/app.py",
+    changes=[
+        {"search": "class UserManager", "replace": "class UserService"},
+        {"search": "UserManager(", "replace": "UserService("},
+        {"search": ": UserManager", "replace": ": UserService"},  # Type hints
+        {"search": "-> UserManager", "replace": "-> UserService"},  # Return types
+    ],
+    preview=True
+)
+
+# Step 3: Review preview
+print(result["preview"])
+
+# Step 4: Apply if looks good
+if input("Apply changes? (y/n): ") == "y":
+    result = edit_content(
+        "/path/to/app.py",
+        changes=[...],  # Same changes
+        preview=False
+    )
+    print(f"Backup created: {result['backup_created']}")
+
+# Step 5: If something breaks, revert
+# revert_edit("/path/to/app.py")  # Instant recovery
+```
+
+---
+
+These examples demonstrate how AI assistants use the Largefile MCP Server to handle real-world scenarios with large files, from code analysis to refactoring to data processing, with robust error recovery and batch operations.

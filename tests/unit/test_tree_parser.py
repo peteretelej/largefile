@@ -3,7 +3,12 @@
 Test core tree-sitter functionality with graceful fallback handling.
 """
 
-from src.tree_parser import generate_outline, get_language_parser, parse_file_content
+from src.tree_parser import (
+    generate_outline,
+    get_language_parser,
+    get_semantic_chunk,
+    parse_file_content,
+)
 
 
 class TestTreeParser:
@@ -106,3 +111,61 @@ def function_two():
         except Exception:
             # Tree-sitter compatibility issues are acceptable
             pass
+
+
+class TestGetSemanticChunk:
+    """Tests for get_semantic_chunk() function."""
+
+    def test_semantic_chunk_python_function(self):
+        """Returns semantic chunk around a Python function definition."""
+        content = """import os
+
+def hello():
+    print('hi')
+    return True
+
+def world():
+    pass
+"""
+        # Target line 4 (inside hello function)
+        chunk, start, end = get_semantic_chunk("test.py", content, 4)
+
+        # Should include the hello function
+        assert "hello" in chunk
+        assert "print" in chunk
+        # Start/end should bound the target line
+        assert start <= 4 <= end
+
+    def test_semantic_chunk_fallback_unsupported_language(self):
+        """Falls back to ±10 lines for unsupported file types."""
+        content = "\n".join([f"line{i}" for i in range(1, 26)])  # 25 lines
+        chunk, start, end = get_semantic_chunk("test.xyz", content, 15)
+
+        # Should include lines around 15 (±10)
+        assert "line15" in chunk
+        # Fallback uses ±10 lines
+        assert start >= 5  # max(1, 15-10) = 5
+        assert end <= 25  # min(25, 15+10) = 25
+
+    def test_semantic_chunk_target_at_file_end(self):
+        """Handles target line at end of file."""
+        content = """def foo():
+    pass
+
+def bar():
+    return 1
+"""
+        # Target the last line
+        chunk, start, end = get_semantic_chunk("test.py", content, 5)
+
+        assert "bar" in chunk or "return" in chunk
+        assert end >= 5
+
+    def test_semantic_chunk_single_line_file(self):
+        """Handles single-line file without crashing."""
+        content = "x = 1"
+        chunk, start, end = get_semantic_chunk("test.py", content, 1)
+
+        assert "x = 1" in chunk
+        assert start == 1
+        assert end >= 1

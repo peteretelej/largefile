@@ -5,6 +5,7 @@ Test core file access strategies and operations.
 
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 from src.exceptions import FileAccessError
 from src.file_access import (
@@ -15,6 +16,7 @@ from src.file_access import (
     read_file_content,
     read_tail,
 )
+from src.utils import format_file_size, is_long_line, truncate_line
 
 
 class TestFileAccess:
@@ -296,3 +298,70 @@ class TestReadTail:
             raise AssertionError("Should have raised FileAccessError")
         except FileAccessError as e:
             assert "Cannot access file" in str(e)
+
+
+class TestMmapFallback:
+    """Test mmap strategy fallback behavior."""
+
+    def test_mmap_fallback_on_oserror(self):
+        """mmap OSError falls back to memory strategy."""
+        test_content = "test content for mmap fallback"
+
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as f:
+            f.write(test_content)
+            temp_path = f.name
+
+        try:
+            # Patch mmap.mmap to raise OSError, simulating mmap failure
+            with patch("src.file_access.mmap.mmap", side_effect=OSError("mmap failed")):
+                # Force mmap strategy by patching the strategy selection
+                with patch("src.file_access.choose_file_strategy", return_value="mmap"):
+                    # Should fall back to memory read, not raise
+                    content = read_file_content(temp_path)
+                    assert content == test_content
+        finally:
+            Path(temp_path).unlink()
+
+
+class TestUtils:
+    """Tests for utility functions in utils.py."""
+
+    def test_truncate_line_no_truncation(self):
+        """Short lines are not truncated."""
+        line, was_truncated = truncate_line("short line", max_length=100)
+        assert line == "short line"
+        assert was_truncated is False
+
+    def test_truncate_line_with_truncation(self):
+        """Long lines are truncated with ellipsis."""
+        line, was_truncated = truncate_line("x" * 50, max_length=10)
+        assert line == "x" * 10 + "..."
+        assert was_truncated is True
+
+    def test_is_long_line_true(self):
+        """Lines exceeding threshold return True."""
+        assert is_long_line("x" * 1000, threshold=100) is True
+
+    def test_is_long_line_false(self):
+        """Lines within threshold return False."""
+        assert is_long_line("short", threshold=100) is False
+
+    def test_format_file_size_bytes(self):
+        """Formats bytes correctly."""
+        assert format_file_size(500) == "500 B"
+
+    def test_format_file_size_kb(self):
+        """Formats kilobytes correctly."""
+        result = format_file_size(5000)
+        assert "KB" in result
+        assert "4.9" in result  # 5000/1024 ≈ 4.88
+
+    def test_format_file_size_mb(self):
+        """Formats megabytes correctly."""
+        result = format_file_size(5_000_000)
+        assert "MB" in result
+
+    def test_format_file_size_gb(self):
+        """Formats gigabytes correctly."""
+        result = format_file_size(5_000_000_000)
+        assert "GB" in result
