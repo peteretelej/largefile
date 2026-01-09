@@ -2,6 +2,16 @@ from dataclasses import dataclass, field
 
 
 @dataclass
+class BackupInfo:
+    """Metadata about a file backup."""
+
+    id: str  # Unix timestamp as string
+    timestamp: str  # ISO 8601 format
+    size: int  # Bytes
+    path: str  # Full path to backup file
+
+
+@dataclass
 class SimilarMatch:
     """A similar pattern found when search fails."""
 

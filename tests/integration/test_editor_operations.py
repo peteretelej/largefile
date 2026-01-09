@@ -106,8 +106,8 @@ class TestEditorOperations:
         test_file = self.create_test_file("backup_test.txt", original)
 
         # Create manual backup first
-        backup_path = create_backup(test_file)
-        assert Path(backup_path).exists()
+        backup_info = create_backup(test_file)
+        assert Path(backup_info.path).exists()
 
         # Make edit that creates another backup
         result = atomic_edit_file(
@@ -118,7 +118,7 @@ class TestEditorOperations:
         assert result.backup_created is not None
 
         # Verify we can restore from backup
-        restored_content = Path(backup_path).read_text()
+        restored_content = Path(backup_info.path).read_text()
         assert restored_content == original
 
         # Write backup content back to test restoration

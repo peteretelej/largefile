@@ -1,10 +1,14 @@
+import hashlib
 import mmap
 import os
+import time
+from datetime import datetime
 from pathlib import Path
 
 import chardet
 
 from .config import config
+from .data_models import BackupInfo
 from .exceptions import FileAccessError
 
 
@@ -296,18 +300,135 @@ def write_file_content(file_path: str, content: str) -> None:
         raise FileAccessError(f"Failed to write {file_path}: {e}") from e
 
 
-def create_backup(file_path: str) -> str:
-    """Create backup of file and return backup path."""
+def get_backup_pattern(file_path: str) -> str:
+    """Generate backup filename pattern for globbing.
+
+    Pattern format: {basename}.{path_hash}.*
+    The path_hash ensures files with the same name in different directories
+    don't collide in the backup directory.
+    """
+    canonical_path = normalize_path(file_path)
+    path_hash = hashlib.md5(canonical_path.encode()).hexdigest()[:8]
+    basename = Path(canonical_path).name
+    return f"{basename}.{path_hash}.*"
+
+
+def get_backup_filename(file_path: str) -> str:
+    """Generate backup filename with timestamp.
+
+    Format: {basename}.{path_hash}.{timestamp}
+    """
+    canonical_path = normalize_path(file_path)
+    path_hash = hashlib.md5(canonical_path.encode()).hexdigest()[:8]
+    basename = Path(canonical_path).name
+    timestamp = int(time.time())
+    return f"{basename}.{path_hash}.{timestamp}"
+
+
+def list_backups(file_path: str) -> list[BackupInfo]:
+    """List available backups for a file, newest first.
+
+    Args:
+        file_path: Path to the original file.
+
+    Returns:
+        List of BackupInfo objects sorted by timestamp (newest first).
+    """
+    canonical_path = normalize_path(file_path)
+    pattern = get_backup_pattern(canonical_path)
+    backups: list[BackupInfo] = []
+
+    backup_dir = Path(config.backup_dir)
+    if not backup_dir.exists():
+        return []
+
+    for backup_file in backup_dir.glob(pattern):
+        # Extract timestamp from filename (last part after final dot)
+        parts = backup_file.name.rsplit(".", 1)
+        if len(parts) != 2:
+            continue
+
+        try:
+            timestamp_int = int(parts[1])
+            backups.append(
+                BackupInfo(
+                    id=parts[1],
+                    timestamp=datetime.fromtimestamp(timestamp_int).isoformat(),
+                    size=backup_file.stat().st_size,
+                    path=str(backup_file),
+                )
+            )
+        except (ValueError, OSError):
+            continue
+
+    return sorted(backups, key=lambda b: b.id, reverse=True)
+
+
+def cleanup_old_backups(file_path: str, max_backups: int | None = None) -> int:
+    """Remove old backups exceeding max_backups.
+
+    Args:
+        file_path: Path to the original file.
+        max_backups: Maximum number of backups to retain. Uses config default if None.
+
+    Returns:
+        Number of backups deleted.
+    """
+    if max_backups is None:
+        max_backups = config.max_backups
+
+    backups = list_backups(file_path)
+
+    if len(backups) <= max_backups:
+        return 0
+
+    to_delete = backups[max_backups:]
+    deleted = 0
+
+    for backup in to_delete:
+        try:
+            Path(backup.path).unlink()
+            deleted += 1
+        except OSError:
+            pass
+
+    return deleted
+
+
+def create_backup(file_path: str) -> BackupInfo:
+    """Create backup with new naming convention and auto-cleanup.
+
+    Backup naming: {basename}.{path_hash}.{timestamp}
+    - path_hash: first 8 chars of MD5(absolute_path) - prevents collisions
+    - timestamp: Unix epoch seconds
+
+    Args:
+        file_path: Path to the file to backup.
+
+    Returns:
+        BackupInfo with backup metadata.
+    """
     canonical_path = normalize_path(file_path)
 
-    os.makedirs(config.backup_dir, exist_ok=True)
+    backup_dir = Path(config.backup_dir)
+    backup_dir.mkdir(parents=True, exist_ok=True)
 
-    file_name = Path(canonical_path).name
-    backup_path = os.path.join(config.backup_dir, f"{file_name}.backup")
+    backup_name = get_backup_filename(canonical_path)
+    backup_path = backup_dir / backup_name
 
     try:
         content = read_file_content(canonical_path)
-        write_file_content(backup_path, content)
-        return backup_path
+        write_file_content(str(backup_path), content)
+
+        # Cleanup old backups
+        cleanup_old_backups(canonical_path)
+
+        timestamp_str = backup_name.rsplit(".", 1)[1]
+        return BackupInfo(
+            id=timestamp_str,
+            timestamp=datetime.now().isoformat(),
+            size=backup_path.stat().st_size,
+            path=str(backup_path),
+        )
     except Exception as e:
         raise FileAccessError(f"Failed to create backup: {e}") from e

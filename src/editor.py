@@ -237,12 +237,12 @@ def replace_content(
         # Create backup first
         from .file_access import create_backup
 
-        backup_path = create_backup(canonical_path)
+        backup_info = create_backup(canonical_path)
 
         # Write new content atomically
         write_file_content(canonical_path, modified_content)
 
-        result.backup_created = backup_path
+        result.backup_created = backup_info.path
         return result
 
     except Exception as e:

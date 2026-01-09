@@ -55,20 +55,20 @@ class TestEditor:
 
         try:
             # Test backup creation
-            backup_path = create_backup(temp_path)
+            backup_info = create_backup(temp_path)
 
             # Backup should exist
-            assert Path(backup_path).exists()
+            assert Path(backup_info.path).exists()
 
             # Backup should have same content
-            backup_content = Path(backup_path).read_text()
+            backup_content = Path(backup_info.path).read_text()
             assert backup_content == test_content
 
             # Backup path should be different from original
-            assert backup_path != temp_path
+            assert backup_info.path != temp_path
 
             # Clean up backup
-            Path(backup_path).unlink()
+            Path(backup_info.path).unlink()
 
         finally:
             Path(temp_path).unlink()
