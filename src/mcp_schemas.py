@@ -99,7 +99,7 @@ def get_tool_schemas() -> list[types.Tool]:
         ),
         types.Tool(
             name="edit_content",
-            description="Modify large files using search and replace operations with fuzzy matching. Supports single edit (search_text/replace_text) or batch edit (changes array) for multiple atomic changes. Returns diff preview and creates automatic backups. Requires absolute file paths only.",
+            description="Modify large files using search and replace operations with fuzzy matching. Supports single edit (search_text/replace_text) or batch edit (changes array) for multiple atomic changes. Returns diff preview and creates automatic backups. IMPORTANT: The file is read fresh when this tool is called - if the file was modified externally since your last read, use preview=true first to verify the edit targets the correct location. Requires absolute file paths only.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -154,7 +154,7 @@ def get_tool_schemas() -> list[types.Tool]:
         ),
         types.Tool(
             name="revert_edit",
-            description="Revert a file to a previous backup state. Creates backup of current state before reverting. Use to recover from bad edits. Returns available backups list. Requires absolute file paths only.",
+            description="Revert a file to a previous backup state. Creates backup of current state before reverting, so no data is lost. Backups are created automatically by edit_content. Use to recover from bad edits or unintended changes. Returns available backups list. Requires absolute file paths only.",
             inputSchema={
                 "type": "object",
                 "properties": {
