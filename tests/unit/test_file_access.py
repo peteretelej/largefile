@@ -1,14 +1,19 @@
 """File access unit tests.
 
 Test core file access strategies and operations.
+Uses table-driven tests for comprehensive coverage.
 """
 
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from src.exceptions import FileAccessError
 from src.file_access import (
+    _read_file_lines_streaming,
+    _read_file_streaming,
     choose_file_strategy,
     detect_file_encoding,
     get_file_info,
@@ -16,7 +21,10 @@ from src.file_access import (
     is_binary_file,
     normalize_path,
     read_file_content,
+    read_file_lines,
+    read_head,
     read_tail,
+    write_file_content,
 )
 from src.utils import format_file_size, is_long_line, truncate_line
 
@@ -528,3 +536,233 @@ class TestLongLineStats:
         assert stats["count"] == 1  # Only 60-char line is over 55
         assert stats["max_length"] == 61
         assert stats["threshold"] == 55
+
+
+class TestReadHead:
+    """Tests for read_head function."""
+
+    def test_read_head_basic(self):
+        """Reads first N lines from file."""
+        content = "\n".join([f"Line {i}" for i in range(1, 21)])
+
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as f:
+            f.write(content)
+            temp_path = f.name
+
+        try:
+            result = read_head(temp_path, 5)
+
+            assert result["start_line"] == 1
+            assert result["end_line"] == 5
+            assert result["lines_read"] == 5
+            assert result["total_lines"] == 20
+            assert "Line 1" in result["content"]
+            assert "Line 5" in result["content"]
+            assert "Line 6" not in result["content"]
+        finally:
+            Path(temp_path).unlink()
+
+    def test_read_head_more_than_file(self):
+        """Returns entire file when limit exceeds total lines."""
+        content = "Line 1\nLine 2\nLine 3\n"
+
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as f:
+            f.write(content)
+            temp_path = f.name
+
+        try:
+            result = read_head(temp_path, 100)
+
+            assert result["total_lines"] == 3
+            assert result["lines_read"] == 3
+            assert result["start_line"] == 1
+            assert result["end_line"] == 3
+        finally:
+            Path(temp_path).unlink()
+
+    def test_read_head_empty_file(self):
+        """Handles empty file gracefully."""
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as f:
+            temp_path = f.name
+
+        try:
+            result = read_head(temp_path, 10)
+
+            assert result["total_lines"] == 0
+            assert result["lines_read"] == 0
+            assert result["content"] == ""
+        finally:
+            Path(temp_path).unlink()
+
+    def test_read_head_nonexistent_file(self):
+        """Raises error for non-existent file."""
+        with pytest.raises(FileAccessError) as exc_info:
+            read_head("/nonexistent/file.txt", 10)
+        assert "Cannot access file" in str(exc_info.value)
+
+
+class TestStreamingStrategy:
+    """Tests for streaming file access strategy."""
+
+    def test_streaming_read_content(self):
+        """Test _read_file_streaming function."""
+        content = "Line 1\nLine 2\nLine 3\n"
+
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as f:
+            f.write(content)
+            temp_path = f.name
+
+        try:
+            result = _read_file_streaming(temp_path, "utf-8")
+            assert result == content
+        finally:
+            Path(temp_path).unlink()
+
+    def test_streaming_read_lines(self):
+        """Test _read_file_lines_streaming function."""
+        content = "Line 1\nLine 2\nLine 3\n"
+
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as f:
+            f.write(content)
+            temp_path = f.name
+
+        try:
+            lines = _read_file_lines_streaming(temp_path, "utf-8")
+            assert len(lines) == 3
+            assert lines[0] == "Line 1\n"
+            assert lines[2] == "Line 3\n"
+        finally:
+            Path(temp_path).unlink()
+
+    def test_streaming_read_lines_no_trailing_newline(self):
+        """Test streaming with content not ending in newline."""
+        content = "Line 1\nLine 2\nLine 3"  # No trailing newline
+
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as f:
+            f.write(content)
+            temp_path = f.name
+
+        try:
+            lines = _read_file_lines_streaming(temp_path, "utf-8")
+            assert len(lines) == 3
+            assert lines[2] == "Line 3"  # Last line without newline
+        finally:
+            Path(temp_path).unlink()
+
+
+class TestLargeFileStreamingPaths:
+    """Test file operations that use streaming for large files."""
+
+    def test_read_tail_streaming_path(self):
+        """Test read_tail with streaming strategy (large file simulation)."""
+        content = "\n".join([f"Line {i}" for i in range(1, 1001)])
+
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as f:
+            f.write(content)
+            temp_path = f.name
+
+        try:
+            # Force streaming path by patching memory threshold MB
+            from src.file_access import config
+
+            original_threshold = config.memory_threshold_mb
+            config.memory_threshold_mb = 0  # Set to 0 to force streaming
+
+            try:
+                result = read_tail(temp_path, 10)
+
+                assert result["total_lines"] == 1000
+                assert result["end_line"] == 1000
+                assert "Line 991" in result["content"]
+                assert "Line 1000" in result["content"]
+            finally:
+                config.memory_threshold_mb = original_threshold
+        finally:
+            Path(temp_path).unlink()
+
+    def test_read_head_streaming_path(self):
+        """Test read_head with streaming strategy (large file simulation)."""
+        content = "\n".join([f"Line {i}" for i in range(1, 1001)])
+
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as f:
+            f.write(content)
+            temp_path = f.name
+
+        try:
+            # Force streaming path by patching memory threshold MB
+            from src.file_access import config
+
+            original_threshold = config.memory_threshold_mb
+            config.memory_threshold_mb = 0  # Set to 0 to force streaming
+
+            try:
+                result = read_head(temp_path, 10)
+
+                assert result["total_lines"] == 1000
+                assert result["start_line"] == 1
+                assert result["lines_read"] == 10
+                assert "Line 1" in result["content"]
+                assert "Line 10" in result["content"]
+            finally:
+                config.memory_threshold_mb = original_threshold
+        finally:
+            Path(temp_path).unlink()
+
+
+class TestWriteFileContent:
+    """Tests for write_file_content function."""
+
+    def test_write_new_file(self):
+        """Creates new file with content."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_path = Path(tmpdir) / "new_file.txt"
+            content = "Hello, World!\n"
+
+            write_file_content(str(file_path), content)
+
+            assert file_path.read_text() == content
+
+    def test_write_overwrite_existing(self):
+        """Overwrites existing file."""
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as f:
+            f.write("old content")
+            temp_path = f.name
+
+        try:
+            new_content = "new content\n"
+            write_file_content(temp_path, new_content)
+
+            assert Path(temp_path).read_text() == new_content
+        finally:
+            Path(temp_path).unlink()
+
+    def test_write_atomic(self):
+        """Write is atomic (uses temp file + rename)."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file_path = Path(tmpdir) / "test.txt"
+            content = "Test content\n"
+
+            write_file_content(str(file_path), content)
+
+            # Check no temp file left behind
+            temp_path = Path(f"{file_path}.tmp")
+            assert not temp_path.exists()
+            assert file_path.read_text() == content
+
+
+class TestFileReadErrors:
+    """Test error handling in file reading functions."""
+
+    def test_read_content_directory_error(self):
+        """Reading a directory raises error."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with pytest.raises(FileAccessError) as exc_info:
+                read_file_content(tmpdir)
+            assert "Cannot" in str(exc_info.value)
+
+    def test_read_lines_directory_error(self):
+        """Reading lines from a directory raises error."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with pytest.raises(FileAccessError) as exc_info:
+                read_file_lines(tmpdir)
+            assert "Cannot" in str(exc_info.value)
