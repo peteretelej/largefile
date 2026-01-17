@@ -13,7 +13,7 @@ from .data_models import (
     LongLineStats,
     SearchResult,
 )
-from .editor import atomic_edit_file, batch_edit_content
+from .editor import batch_edit_content
 from .exceptions import EditError, FileAccessError, SearchError, TreeSitterError
 from .file_access import (
     create_backup,
@@ -465,115 +465,70 @@ def _change_result_to_dict(r: ChangeResult) -> dict:
 @handle_tool_errors
 def edit_content(
     absolute_file_path: str,
-    search_text: str | None = None,
-    replace_text: str | None = None,
-    changes: list[dict[str, Any]] | None = None,
+    changes: list[dict[str, Any]],
     fuzzy: bool = True,
     preview: bool = True,
 ) -> dict:
     """PRIMARY EDITING METHOD using search/replace blocks with auto-detected encoding.
-
-    Supports both single edit and batch edit modes:
-    - Single edit: Provide search_text and replace_text
-    - Batch edit: Provide changes array for multiple edits atomically
 
     Fuzzy matching handles whitespace variations. Eliminates line number
     confusion that causes LLM errors. Creates automatic backups before changes.
 
     Parameters:
     - absolute_file_path: Absolute path to the file
-    - search_text: Text to find and replace (single edit mode)
-    - replace_text: Replacement text (single edit mode)
-    - changes: Array of {search, replace, fuzzy?} objects (batch edit mode)
+    - changes: Array of {search, replace, fuzzy?} objects (required)
     - fuzzy: Enable fuzzy matching (default True, can be overridden per-change)
     - preview: Show preview without making changes (default True)
 
     Returns:
     - EditResult with success status, preview, and change details
     """
-    # Validate parameter combinations
-    if changes is not None:
-        if search_text is not None or replace_text is not None:
-            return {
-                "error": "Cannot use 'changes' with 'search_text' or 'replace_text'",
-                "suggestion": "Use either single edit (search_text/replace_text) or batch edit (changes), not both",
-            }
-        if len(changes) == 0:
-            return {
-                "error": "Empty changes array",
-                "suggestion": "Provide at least one change in the changes array",
-            }
-        if len(changes) > config.max_batch_changes:
-            return {
-                "error": f"Too many changes: {len(changes)} exceeds limit of {config.max_batch_changes}",
-                "suggestion": f"Split into multiple calls with at most {config.max_batch_changes} changes each",
-            }
-
-        # Convert dict changes to Change objects
-        change_objects: list[Change] = []
-        for i, c in enumerate(changes):
-            if "search" not in c or "replace" not in c:
-                return {
-                    "error": f"Change at index {i} missing required 'search' or 'replace' field",
-                    "suggestion": "Each change must have 'search' and 'replace' fields",
-                }
-            change_objects.append(
-                Change(
-                    search=c["search"],
-                    replace=c["replace"],
-                    fuzzy=c.get("fuzzy"),
-                )
-            )
-
-        result = batch_edit_content(absolute_file_path, change_objects, fuzzy, preview)
-
-        response: dict[str, Any] = {
-            "success": result.success,
-            "changes_applied": result.changes_applied,
-            "changes_failed": result.changes_failed,
-            "results": [_change_result_to_dict(r) for r in result.results]
-            if result.results
-            else [],
-            "preview": result.preview,
-            "backup_created": result.backup_created,
-        }
-        return response
-
-    # Single edit mode
-    if search_text is None or replace_text is None:
+    # Validate changes array
+    if not changes:
         return {
-            "error": "Missing required parameters",
-            "suggestion": "Provide either (search_text, replace_text) for single edit or (changes) for batch edit",
+            "error": "Empty changes array",
+            "suggestion": "Provide at least one change in the changes array",
         }
 
-    result = atomic_edit_file(
-        absolute_file_path, search_text, replace_text, fuzzy, preview
-    )
+    if len(changes) > config.max_batch_changes:
+        return {
+            "error": f"Too many changes: {len(changes)} exceeds limit of {config.max_batch_changes}",
+            "suggestion": f"Split into multiple calls with at most {config.max_batch_changes} changes each",
+        }
 
-    response = {
+    # Convert dict changes to Change objects
+    change_objects: list[Change] = []
+    for i, c in enumerate(changes):
+        if "search" not in c:
+            return {
+                "error": f"Change at index {i} missing required 'search' field",
+                "suggestion": "Each change must have 'search' and 'replace' fields",
+            }
+        if "replace" not in c:
+            return {
+                "error": f"Change at index {i} missing required 'replace' field",
+                "suggestion": "Each change must have 'search' and 'replace' fields",
+            }
+        change_objects.append(
+            Change(
+                search=c["search"],
+                replace=c["replace"],
+                fuzzy=c.get("fuzzy"),
+            )
+        )
+
+    result = batch_edit_content(absolute_file_path, change_objects, fuzzy, preview)
+
+    response: dict[str, Any] = {
         "success": result.success,
+        "changes_applied": result.changes_applied,
+        "changes_failed": result.changes_failed,
+        "results": [_change_result_to_dict(r) for r in result.results]
+        if result.results
+        else [],
         "preview": result.preview,
-        "changes_made": result.changes_made,
-        "match_type": result.match_type,
-        "similarity_used": result.similarity_used,
-        "line_number": result.line_number,
         "backup_created": result.backup_created,
     }
-
-    # Include enhanced error info when edit fails
-    if not result.success:
-        if result.search_attempted:
-            response["search_attempted"] = result.search_attempted
-        if result.fuzzy_enabled is not None:
-            response["fuzzy_enabled"] = result.fuzzy_enabled
-        if result.suggestion:
-            response["suggestion"] = result.suggestion
-        if result.similar_matches:
-            response["similar_matches"] = [
-                {"line": m.line, "content": m.content, "similarity": m.similarity}
-                for m in result.similar_matches
-            ]
-
     return response
 
 

@@ -35,26 +35,6 @@ class TestBatchEditTool:
         finally:
             Path(temp_path).unlink()
 
-    def test_batch_mixed_with_legacy_errors(self):
-        """Error when both changes and search_text provided."""
-        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".py") as f:
-            f.write("test")
-            temp_path = f.name
-
-        try:
-            result = edit_content(
-                temp_path,
-                search_text="old",
-                replace_text="new",
-                changes=[{"search": "foo", "replace": "bar"}],
-            )
-
-            assert "error" in result
-            assert "Cannot use" in result["error"]
-
-        finally:
-            Path(temp_path).unlink()
-
     def test_batch_edit_empty_changes(self):
         """Empty array returns error."""
         with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".py") as f:
@@ -70,17 +50,32 @@ class TestBatchEditTool:
         finally:
             Path(temp_path).unlink()
 
-    def test_batch_edit_missing_params(self):
-        """Error when neither changes nor search_text/replace_text provided."""
+    def test_batch_edit_missing_search_field(self):
+        """Error when change missing required 'search' field."""
         with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".py") as f:
             f.write("test")
             temp_path = f.name
 
         try:
-            result = edit_content(temp_path)
+            result = edit_content(temp_path, changes=[{"replace": "new"}])
 
             assert "error" in result
-            assert "Missing" in result["error"]
+            assert "missing required 'search'" in result["error"]
+
+        finally:
+            Path(temp_path).unlink()
+
+    def test_batch_edit_missing_replace_field(self):
+        """Error when change missing required 'replace' field."""
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".py") as f:
+            f.write("test")
+            temp_path = f.name
+
+        try:
+            result = edit_content(temp_path, changes=[{"search": "old"}])
+
+            assert "error" in result
+            assert "missing required 'replace'" in result["error"]
 
         finally:
             Path(temp_path).unlink()
@@ -103,8 +98,8 @@ class TestBatchEditTool:
         finally:
             Path(temp_path).unlink()
 
-    def test_single_edit_still_works(self):
-        """Legacy single edit mode still works."""
+    def test_single_change_in_array(self):
+        """Single edit via changes array works."""
         content = "hello world\n"
 
         with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as f:
@@ -114,14 +109,15 @@ class TestBatchEditTool:
         try:
             result = edit_content(
                 temp_path,
-                search_text="hello",
-                replace_text="hi",
+                changes=[{"search": "hello", "replace": "hi"}],
                 preview=True,
             )
 
             assert result["success"] is True
-            assert result["changes_made"] == 1
-            assert result["match_type"] == "exact"
+            assert result["changes_applied"] == 1
+            assert result["changes_failed"] == 0
+            assert len(result["results"]) == 1
+            assert result["results"][0]["match_type"] == "exact"
 
         finally:
             Path(temp_path).unlink()
