@@ -1,30 +1,20 @@
 # Largefile MCP Server
 
-An MCP server that enables AI assistants to work with large files that exceed context limits.
+Navigate, search, and edit large codebases, logs, and data files that exceed AI context limits.
 
-[![CI](https://img.shields.io/github/actions/workflow/status/peteretelej/largefile/ci.yml?branch=main&logo=github)](https://github.com/peteretelej/largefile/actions/workflows/ci.yml) [![codecov](https://codecov.io/gh/peteretelej/largefile/branch/main/graph/badge.svg)](https://codecov.io/gh/peteretelej/largefile) [![PyPI version](https://img.shields.io/pypi/v/largefile.svg)](https://pypi.org/project/largefile/) [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff) [![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
+[![CI](https://img.shields.io/github/actions/workflow/status/peteretelej/largefile/ci.yml?branch=main&logo=github)](https://github.com/peteretelej/largefile/actions/workflows/ci.yml) [![codecov](https://codecov.io/gh/peteretelej/largefile/branch/main/graph/badge.svg)](https://codecov.io/gh/peteretelej/largefile) [![PyPI version](https://img.shields.io/pypi/v/largefile.svg)](https://pypi.org/project/largefile/) [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Navigate, search, and edit files of any size without loading entire content into memory. Largefile provides targeted access to specific lines, patterns, and sections while maintaining file integrity using research-backed search/replace editing instead of error-prone line-based operations.
+## Why Largefile?
 
-Perfect for working with large codebases, generated files, logs, and datasets that would otherwise be inaccessible due to context window limitations.
-
-## MCP Tools
-
-Five tools that work together for progressive file exploration:
-
-| Tool | Purpose |
-|------|---------|
-| **`get_overview`** | File structure with Tree-sitter semantic analysis, binary detection, and long line stats |
-| **`search_content`** | Pattern search with fuzzy, regex, count-only, and invert matching modes |
-| **`read_content`** | Targeted reading by offset/limit, pattern, tail mode, or head mode |
-| **`edit_content`** | Batch search/replace editing with automatic backups and preview mode |
-| **`revert_edit`** | Recover from bad edits by reverting to previous backup states |
+- **Go beyond context limits** - Read, search, and edit files too large to fit in AI context windows
+- **Semantic code navigation** - Tree-sitter extracts functions/classes for Python, JS/TS, Rust, Go
+- **Fewer LLM errors** - Search/replace editing eliminates line number mistakes common with line-based edits
+- **Smart search** - Fuzzy matching, regex, case-insensitive, inverted, and count-only modes
+- **No size limits** - Handles multi-GB files via tiered memory strategy (RAM → mmap → streaming)
 
 ## Quick Start
 
-**Prerequisite:** Install [uv](https://docs.astral.sh/uv/getting-started/installation/) (an extremely fast Python package manager) which provides the `uvx` command.
-
-Add to your MCP configuration:
+**Prerequisite:** Install [uv](https://docs.astral.sh/uv/getting-started/installation/) for the `uvx` command.
 
 ```json
 {
@@ -37,275 +27,110 @@ Add to your MCP configuration:
 }
 ```
 
-## Usage
+## Tools
 
-Your AI Assistant / LLM can now work with very large files that exceed its context limits. Here are some common workflows:
+| Tool             | Use For                                                |
+| ---------------- | ------------------------------------------------------ |
+| `get_overview`   | File structure and semantic outline before diving in   |
+| `search_content` | Finding patterns, counting occurrences, regex matching |
+| `read_content`   | Reading specific sections; tail/head modes for logs    |
+| `edit_content`   | Safe search/replace with automatic backups             |
+| `revert_edit`    | Recovering from bad edits                              |
 
-### Analyzing Large Code Files
+## When to Use Largefile
 
-**AI Question:** _"Can you analyze this large Django models file and tell me about the class structure and any potential issues? It's a large file so use largefile."_
+**Use when:**
 
-**AI Assistant workflow:**
+- File exceeds ~1000 lines or 100KB (supports multi-GB files)
+- Navigating large codebases with semantic structure
+- Analyzing log files (especially recent entries with tail mode)
+- Making search/replace edits across large files
+- Counting occurrences without loading full content
 
-1. Gets file overview to understand structure
-2. Searches for classes and their methods
-3. Looks for code issues like TODOs or long functions
+**Don't use for:**
 
-```python
-# AI gets file structure
-overview = get_overview("/path/to/django-models.py")
-# Returns: 2,847 lines, 15 classes, semantic outline with Tree-sitter
+- Small files that fit in context (AI doesn't need help with those)
+- Binary files (images, executables, compressed)
 
-# AI searches for all class definitions
-classes = search_content("/path/to/django-models.py", "class ", max_results=20)
-# Returns: Model classes with line numbers and context
+## Usage Examples
 
-# AI examines specific class implementation
-model_code = read_content("/path/to/django-models.py", pattern="class User", mode="semantic")
-# Returns: Complete class definition with all methods
+### Large Codebase Navigation
+
+```pythonß
+# Get semantic structure of a large Python file
+overview = get_overview("/path/to/large_module.py")
+# Returns: 2,847 lines, 15 classes, function outline via Tree-sitter
+
+# Find all class definitions
+classes = search_content("/path/to/large_module.py", "class ", fuzzy=False)
+
+# Read complete class with semantic chunking
+code = read_content("/path/to/large_module.py", pattern="class UserModel", mode="semantic")
 ```
 
-### Working with Documentation
-
-**AI Question:** _"Find all the installation methods mentioned in this README file and update the pip install to use uv instead."_
-
-**AI Assistant workflow:**
-
-1. Search for installation patterns
-2. Read the installation section
-3. Replace pip commands with uv equivalents
+### Batch Refactoring
 
 ```python
-# AI finds installation instructions
-install_sections = search_content("/path/to/readme.md", "install", fuzzy=True, context_lines=3)
+# Preview rename across file
+preview = edit_content("/path/to/api.py", changes=[
+    {"search": "process_data", "replace": "transform_data"},
+    {"search": "old_endpoint", "replace": "new_endpoint"}
+], preview=True)
 
-# AI reads the installation section
-install_content = read_content("/path/to/readme.md", pattern="## Installation", mode="semantic")
+# Apply changes (creates automatic backup)
+result = edit_content("/path/to/api.py", changes=[...], preview=False)
 
-# AI replaces pip with uv
-edit_result = edit_content(
-    "/path/to/readme.md",
-    changes=[{"search": "pip install anthropic", "replace": "uv add anthropic"}],
-    preview=True
-)
+# Undo if needed
+revert_edit("/path/to/api.py")
 ```
 
-### Debugging Large Log Files
-
-**AI Question:** _"Check this production log file for any critical errors in the last few thousand lines and show me the context around them. Use largefile mcp."_
-
-**AI Assistant workflow:**
-
-1. Get log file overview
-2. Read the last N lines efficiently with tail mode
-3. Search for error patterns in recent entries
+### Log Analysis
 
 ```python
-# AI gets log file overview
-overview = get_overview("/path/to/production.log")
-# Returns: 150,000 lines, 2.1GB file size
+# Get log file overview
+overview = get_overview("/var/log/app.log")
+# Returns: 150,000 lines, 2.1GB
 
-# AI reads the last 1000 lines efficiently (no need to know total line count)
-recent = read_content("/path/to/production.log", limit=1000, mode="tail")
-# Returns: Last 1000 lines without loading entire file
+# Read last 500 lines efficiently
+recent = read_content("/var/log/app.log", limit=500, mode="tail")
 
-# AI counts errors efficiently
-error_count = search_content("/path/to/production.log", "ERROR", count_only=True, fuzzy=False)
-# Returns: {"count": 47, ...} without loading all content
+# Count errors without loading content
+error_count = search_content("/var/log/app.log", "ERROR", count_only=True, fuzzy=False)
 
-# AI searches for critical errors with context
-errors = search_content("/path/to/production.log", "CRITICAL", fuzzy=False, max_results=10)
-
-# AI examines context around each error
-for error in errors["results"]:
-    context = read_content("/path/to/production.log", offset=error["line_number"], limit=20)
-    # Shows surrounding log entries for debugging
+# Find errors with regex
+errors = search_content("/var/log/app.log", r"ERROR.*timeout", regex=True)
 ```
-
-### Refactoring Code
-
-**AI Question:** _"I need to rename the function `process_data` to `transform_data` throughout this large codebase file. Can you help me do this safely?"_
-
-**AI Assistant workflow:**
-
-1. Find all occurrences of the function
-2. Preview changes to ensure accuracy
-3. Apply changes with automatic backup
-
-```python
-# AI finds all usages
-usages = search_content("/path/to/codebase.py", "process_data", fuzzy=False, max_results=50)
-
-# AI previews the changes
-preview = edit_content(
-    "/path/to/codebase.py",
-    changes=[{"search": "process_data", "replace": "transform_data"}],
-    preview=True
-)
-
-# AI applies changes after confirmation
-result = edit_content(
-    "/path/to/codebase.py",
-    changes=[{"search": "process_data", "replace": "transform_data"}],
-    preview=False
-)
-# Creates automatic backup before changes
-```
-
-### Batch Editing Multiple Patterns
-
-**AI Question:** _"Update all the deprecated API calls in this file - there are several different ones to change."_
-
-**AI Assistant workflow:**
-
-1. Identify all deprecated patterns
-2. Apply multiple changes atomically in one call
-
-```python
-# AI applies multiple changes in a single atomic operation
-result = edit_content(
-    "/path/to/api_client.py",
-    changes=[
-        {"search": "client.get_user(", "replace": "client.fetch_user("},
-        {"search": "client.post_data(", "replace": "client.send_data("},
-        {"search": "client.delete_item(", "replace": "client.remove_item("},
-    ],
-    preview=True
-)
-# Returns per-change results with success/failure status
-# All changes applied atomically - partial success is reported
-```
-
-### Recovering from Bad Edits
-
-**AI Question:** _"That last edit broke something. Can you undo it?"_
-
-**AI Assistant workflow:**
-
-1. List available backups
-2. Revert to previous state (current state is preserved as new backup)
-
-```python
-# AI reverts to the most recent backup
-result = revert_edit("/path/to/broken_file.py")
-# Current state saved as backup, file restored to previous version
-
-# Or revert to a specific backup by ID
-result = revert_edit("/path/to/broken_file.py", backup_id="20240115_143022")
-# Returns: available_backups list for reference
-```
-
-### Advanced Search with Regex
-
-**AI Question:** _"Find all IP addresses in this server log file."_
-
-**AI Assistant workflow:**
-
-```python
-# AI uses regex mode to find IP address patterns
-results = search_content(
-    "/path/to/server.log",
-    r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}",
-    regex=True,
-    fuzzy=False,
-    max_results=50
-)
-
-# AI finds non-INFO lines (invert mode like grep -v)
-non_info = search_content("/path/to/app.log", "INFO", invert=True, fuzzy=False)
-```
-
-### Exploring API Documentation
-
-**AI Question:** _"What are all the available methods in this large API documentation file and can you show me examples of authentication?"_
-
-**AI Assistant workflow:**
-
-1. Get document structure overview
-2. Search for method definitions and auth patterns
-3. Extract relevant code examples
-
-```python
-# AI analyzes document structure
-overview = get_overview("/path/to/api-docs.md")
-# Returns: Section outline, headings, suggested search patterns
-
-# AI finds API methods
-methods = search_content("/path/to/api-docs.md", "###", max_results=30)
-# Returns: All method headings with context
-
-# AI searches for authentication examples
-auth_examples = search_content("/path/to/api-docs.md", "auth", fuzzy=True, context_lines=5)
-
-# AI reads complete authentication section
-auth_section = read_content("/path/to/api-docs.md", pattern="## Authentication", mode="semantic")
-```
-
-## File Size Handling
-
-- **Small files (<50MB)**: Memory loading with Tree-sitter AST caching
-- **Medium files (50-500MB)**: Memory-mapped access
-- **Large files (>500MB)**: Streaming processing
-- **Long lines (>1000 chars)**: Automatic truncation for display
 
 ## Supported Languages
 
-Tree-sitter semantic analysis for:
+Tree-sitter semantic analysis for: **Python**, **JavaScript/JSX**, **TypeScript/TSX**, **Rust**, **Go**
 
-- Python (.py)
-- JavaScript/JSX (.js, .jsx)
-- TypeScript/TSX (.ts, .tsx)
-- Rust (.rs)
-- Go (.go)
+Other file types use text-based analysis with graceful fallback.
 
-Files without Tree-sitter support use text-based analysis with graceful degradation.
+## File Size Handling
+
+| Size     | Strategy                                |
+| -------- | --------------------------------------- |
+| < 50MB   | Full memory loading with AST caching    |
+| 50-500MB | Memory-mapped access                    |
+| > 500MB  | Streaming (tail/head modes recommended) |
 
 ## Configuration
 
-Configure via environment variables:
+Environment variables for tuning:
 
 ```bash
-# File processing thresholds
-LARGEFILE_MEMORY_THRESHOLD_MB=50        # Memory loading limit
-LARGEFILE_MMAP_THRESHOLD_MB=500         # Memory mapping limit
-
-# Search settings
-LARGEFILE_FUZZY_THRESHOLD=0.8           # Fuzzy match sensitivity (0.0-1.0)
-LARGEFILE_MAX_SEARCH_RESULTS=20         # Result limit per search
-LARGEFILE_CONTEXT_LINES=3               # Context lines around matches
-
-# Error recovery
-LARGEFILE_SIMILAR_MATCH_LIMIT=3         # Similar matches shown on edit failure
-LARGEFILE_SIMILAR_MATCH_THRESHOLD=0.6   # Min similarity for suggestions
-
-# Backup management
-LARGEFILE_BACKUP_DIR="~/.largefile/backups"  # Backup location
-LARGEFILE_MAX_BACKUPS=10                # Backups retained per file
-
-# Batch editing
-LARGEFILE_MAX_BATCH_CHANGES=50          # Max changes per batch call
-
-# Performance
-LARGEFILE_ENABLE_TREE_SITTER=true       # Semantic features
+LARGEFILE_MEMORY_THRESHOLD_MB=50      # RAM loading limit
+LARGEFILE_MMAP_THRESHOLD_MB=500       # Memory mapping limit
+LARGEFILE_FUZZY_THRESHOLD=0.8         # Match sensitivity (0.0-1.0)
+LARGEFILE_MAX_SEARCH_RESULTS=20       # Results per search
+LARGEFILE_BACKUP_DIR=~/.largefile/backups
 ```
-
-## Key Features
-
-- **Search/replace editing** - Eliminates LLM line number errors with fuzzy matching
-- **Batch operations** - Apply multiple changes atomically in one call
-- **Regex & invert search** - Powerful pattern matching with grep-like features
-- **Count-only mode** - Efficiently count matches without loading content
-- **Smart error recovery** - Failed edits show similar matches with suggestions
-- **Backup & revert** - Automatic backups with full revert capability
-- **Tail & head modes** - Read file endings/beginnings without full scan
-- **Binary detection** - Warns when files appear binary
-- **Semantic awareness** - Tree-sitter integration for code structure
-- **Memory efficient** - Handles files of any size via tiered access strategy
 
 ## Documentation
 
 - [API Reference](docs/API.md) - Detailed tool documentation
-- [Configuration Guide](docs/configuration.md) - Environment variables and tuning
-- [Examples](docs/examples.md) - Real-world usage examples and workflows
-- [Design Document](docs/design.md) - Architecture and implementation details
-- [Contributing](docs/CONTRIBUTING.md) - Development setup and guidelines
+- [Configuration Guide](docs/configuration.md) - All environment variables
+- [Examples](docs/examples.md) - More workflow examples
+- [Design Document](docs/design.md) - Architecture details
+- [Contributing](docs/CONTRIBUTING.md) - Development setup

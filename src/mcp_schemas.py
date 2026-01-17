@@ -25,13 +25,19 @@ def get_tool_schemas() -> list[types.Tool]:
     return [
         types.Tool(
             name="get_overview",
-            description="Analyze file structure and generate semantic outline. Use before working with large files to understand organization and find optimal search patterns. Returns file stats, hierarchical outline, and suggested search terms. Requires absolute file paths only.",
+            description=(
+                "Get file structure, size, and semantic outline for large files (code, logs, data). "
+                "Use FIRST when working with any file over 1000 lines or when you need to understand file structure. "
+                "Returns: line count, byte size, binary detection, section headings, and suggested search patterns. "
+                "For code files, uses Tree-sitter to extract functions, classes, and structure. "
+                "Does NOT return file content - use read_content or search_content for that."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
                     "absolute_file_path": {
                         "type": "string",
-                        "description": "Absolute path to target file",
+                        "description": "Absolute path to target file (e.g., /path/to/large_module.py)",
                     },
                 },
                 "required": ["absolute_file_path"],
@@ -40,7 +46,14 @@ def get_tool_schemas() -> list[types.Tool]:
         ),
         types.Tool(
             name="search_content",
-            description="Search for text patterns in large files with fuzzy matching. Use when locating functions, classes, variables, or specific text within files. Returns ranked results with context and similarity scores. Requires absolute file paths only.",
+            description=(
+                "Search large files for text patterns without loading entire content into memory. "
+                "Use when finding functions, classes, errors, log entries, or counting occurrences. "
+                "Supports: fuzzy matching (handles typos/whitespace), regex patterns, case-insensitive search, "
+                "inverted matching (like grep -v), and count-only mode. "
+                "Returns ranked matches with line numbers and surrounding context. "
+                "For log files, combine with read_content tail mode to search recent entries."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -50,7 +63,7 @@ def get_tool_schemas() -> list[types.Tool]:
                     },
                     "pattern": {
                         "type": "string",
-                        "description": "Text pattern to find",
+                        "description": "Text pattern to find (e.g., 'class User', 'ERROR', or regex like r'\\d{3}-\\d{4}')",
                     },
                     "max_results": {
                         "type": "integer",
@@ -59,13 +72,33 @@ def get_tool_schemas() -> list[types.Tool]:
                     },
                     "context_lines": {
                         "type": "integer",
-                        "description": "Context lines before/after match",
+                        "description": "Lines of context before/after each match",
                         "default": 2,
                     },
                     "fuzzy": {
                         "type": "boolean",
-                        "description": "Enable similarity-based matching",
+                        "description": "Enable fuzzy matching to handle typos and whitespace differences (default: true)",
                         "default": True,
+                    },
+                    "regex": {
+                        "type": "boolean",
+                        "description": "Enable regex pattern matching (e.g., r'error.*timeout'). Disables fuzzy matching.",
+                        "default": False,
+                    },
+                    "case_sensitive": {
+                        "type": "boolean",
+                        "description": "Match exact case when true (default: false for case-insensitive)",
+                        "default": False,
+                    },
+                    "invert": {
+                        "type": "boolean",
+                        "description": "Return lines that do NOT match the pattern (like grep -v)",
+                        "default": False,
+                    },
+                    "count_only": {
+                        "type": "boolean",
+                        "description": "Return only the match count, not content. Efficient for large files.",
+                        "default": False,
                     },
                 },
                 "required": ["absolute_file_path", "pattern"],
@@ -74,7 +107,14 @@ def get_tool_schemas() -> list[types.Tool]:
         ),
         types.Tool(
             name="read_content",
-            description="Read specific content from large files using semantic chunking. Use after locating content with search to examine complete functions, classes, or code sections. Returns semantically complete blocks rather than arbitrary line ranges. Use mode='tail' to efficiently read the last N lines from log files or append-only data. Requires absolute file paths only.",
+            description=(
+                "Read specific portions of large files efficiently. "
+                "Use after search_content locates content, or directly with tail/head modes for logs. "
+                "Modes: 'lines' (read by offset/limit), 'semantic' (complete functions/classes via Tree-sitter), "
+                "'tail' (last N lines - ideal for logs), 'head' (first N lines). "
+                "Does NOT search - use search_content first to find line numbers, then read_content to examine. "
+                "For files over 500MB, tail/head modes are most efficient."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -84,21 +124,21 @@ def get_tool_schemas() -> list[types.Tool]:
                     },
                     "offset": {
                         "type": "integer",
-                        "description": "Starting line number, 1-indexed (default: 1). Ignored in tail/head modes or when pattern is set.",
+                        "description": "Starting line number, 1-indexed (default: 1). Ignored in tail/head modes.",
                         "default": 1,
                     },
                     "limit": {
                         "type": "integer",
-                        "description": "Maximum lines to return (default: 100). For tail/head modes, specifies number of lines from end/start.",
+                        "description": "Maximum lines to return. For tail/head, number of lines from end/start.",
                         "default": 100,
                     },
                     "pattern": {
                         "type": "string",
-                        "description": "Optional search pattern to locate content. When set, reads around the first match.",
+                        "description": "Search pattern to locate content. Reads around the first match.",
                     },
                     "mode": {
                         "type": "string",
-                        "description": "Content extraction method: 'lines' for line-based, 'semantic' for tree-sitter chunking, 'tail' for last N lines, 'head' for first N lines",
+                        "description": "Reading mode: 'lines' (by range), 'semantic' (tree-sitter chunks), 'tail' (last N), 'head' (first N)",
                         "default": "lines",
                         "enum": ["lines", "semantic", "tail", "head"],
                     },
@@ -109,7 +149,15 @@ def get_tool_schemas() -> list[types.Tool]:
         ),
         types.Tool(
             name="edit_content",
-            description="Modify large files using search and replace operations with fuzzy matching. Supports single edit (search_text/replace_text) or batch edit (changes array) for multiple atomic changes. Returns diff preview and creates automatic backups. IMPORTANT: The file is read fresh when this tool is called - if the file was modified externally since your last read, use preview=true first to verify the edit targets the correct location. Requires absolute file paths only.",
+            description=(
+                "Edit large files using search/replace with fuzzy matching. "
+                "Use instead of line-based editing to avoid LLM line number errors. "
+                "Fuzzy matching handles whitespace and formatting differences automatically. "
+                "Always use preview=true first to verify matches before applying. "
+                "Creates automatic backup before changes - use revert_edit to undo. "
+                "Batch mode applies multiple changes atomically. "
+                "Does NOT support regex in replacement - patterns must be literal text (use fuzzy=true for flexibility)."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -123,11 +171,11 @@ def get_tool_schemas() -> list[types.Tool]:
                     },
                     "replace_text": {
                         "type": "string",
-                        "description": "New text content (single edit mode)",
+                        "description": "Replacement text (single edit mode)",
                     },
                     "changes": {
                         "type": "array",
-                        "description": "Array of changes for batch edit mode. Each change has search, replace, and optional fuzzy fields",
+                        "description": "Array of changes for batch editing. Each: {search, replace, fuzzy?}",
                         "items": {
                             "type": "object",
                             "properties": {
@@ -141,7 +189,7 @@ def get_tool_schemas() -> list[types.Tool]:
                                 },
                                 "fuzzy": {
                                     "type": "boolean",
-                                    "description": "Per-change fuzzy override",
+                                    "description": "Override fuzzy matching for this change",
                                 },
                             },
                             "required": ["search", "replace"],
@@ -149,12 +197,12 @@ def get_tool_schemas() -> list[types.Tool]:
                     },
                     "fuzzy": {
                         "type": "boolean",
-                        "description": "Enable similarity-based text matching (default for all changes)",
+                        "description": "Enable fuzzy matching for all changes (default: true)",
                         "default": True,
                     },
                     "preview": {
                         "type": "boolean",
-                        "description": "Show changes without applying them",
+                        "description": "Show diff preview without applying changes. Always preview first!",
                         "default": True,
                     },
                 },
@@ -164,7 +212,14 @@ def get_tool_schemas() -> list[types.Tool]:
         ),
         types.Tool(
             name="revert_edit",
-            description="Revert a file to a previous backup state. Creates backup of current state before reverting, so no data is lost. Backups are created automatically by edit_content. Use to recover from bad edits or unintended changes. Returns available backups list. Requires absolute file paths only.",
+            description=(
+                "Restore a file to a previous state from automatic backups. "
+                "Use when edit_content made unwanted changes. "
+                "Backups are created automatically before each edit. "
+                "Current state is saved as new backup before reverting (so revert is reversible). "
+                "Without backup_id, reverts to most recent backup. "
+                "Returns list of available backups with timestamps."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -174,7 +229,7 @@ def get_tool_schemas() -> list[types.Tool]:
                     },
                     "backup_id": {
                         "type": "string",
-                        "description": "Backup timestamp ID to revert to. If omitted, uses most recent backup.",
+                        "description": "Backup timestamp ID (e.g., '20240115_143022'). Omit for most recent.",
                     },
                 },
                 "required": ["absolute_file_path"],
