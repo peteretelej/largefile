@@ -124,7 +124,7 @@ class TestRealWorldExamples:
         if connection_results["results"]:
             first_match = connection_results["results"][0]
             detailed_section = read_content(
-                str(rfc_file), first_match["line_number"], mode="lines"
+                str(rfc_file), offset=first_match["line_number"]
             )
             assert "content" in detailed_section
 
@@ -194,9 +194,7 @@ class TestRealWorldExamples:
         # Test reading specific function implementations
         if function_locations:
             first_function = list(function_locations.values())[0]
-            implementation = read_content(
-                str(lodash_file), first_function, mode="lines"
-            )
+            implementation = read_content(str(lodash_file), offset=first_function)
             assert "content" in implementation
 
     def test_documentation_authoring_assistant(self):

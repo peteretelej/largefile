@@ -25,6 +25,7 @@ from .file_access import (
     normalize_path,
     read_file_content,
     read_file_lines,
+    read_head,
     read_tail,
 )
 from .search_engine import search_file
@@ -335,109 +336,133 @@ def search_content(
 @handle_tool_errors
 def read_content(
     absolute_file_path: str,
-    target: int | str,
+    offset: int = 1,
+    limit: int = 100,
+    pattern: str | None = None,
     mode: str = "lines",
 ) -> dict:
-    """Read content from specific location in file using auto-detected encoding.
+    """Read content from file with explicit offset/limit control.
 
     Read content starting from a line number or around a search pattern.
     Returns a reasonable chunk of content for LLM consumption.
 
     Parameters:
     - absolute_file_path: Absolute path to the file
-    - target: Line number or search pattern to locate content
-    - mode: "lines" for line-based reading, "semantic" for tree-sitter chunking,
-            or "tail" for reading last N lines from end of file
+    - offset: Starting line number, 1-indexed (default: 1)
+    - limit: Maximum lines to return (default: 100)
+    - pattern: Optional search pattern to locate content
+    - mode: "lines", "semantic", "tail", or "head"
 
     Returns:
-    - Content string with metadata about the read operation
+    - Content with metadata about the read operation
     """
     canonical_path = normalize_path(absolute_file_path)
+    warnings: list[str] = []
+
+    # Validate parameters
+    if offset < 1:
+        return {"error": "offset must be >= 1", "suggestion": "Use 1 for first line"}
+    if limit < 1:
+        return {"error": "limit must be >= 1", "suggestion": "Use positive limit"}
+    if mode not in ("lines", "semantic", "tail", "head"):
+        return {
+            "error": f"Invalid mode: {mode}",
+            "suggestion": "Use 'lines', 'semantic', 'tail', or 'head'",
+        }
+
+    # Check for ignored params
+    if mode in ("tail", "head") and offset != 1:
+        warnings.append(f"offset ignored in {mode} mode")
+    if pattern is not None and offset != 1:
+        warnings.append("offset ignored when pattern is set")
 
     # Handle tail mode - read last N lines efficiently
     if mode == "tail":
-        if not isinstance(target, int):
-            raise ValueError(
-                "Tail mode requires integer target (number of lines from end)"
-            )
-        if target <= 0:
-            raise ValueError("Tail mode target must be positive")
+        result = read_tail(canonical_path, limit)
+        result["mode"] = "tail"
+        result["lines_returned"] = result.pop(
+            "lines_read", result["end_line"] - result["start_line"] + 1
+        )
+        if warnings:
+            result["warnings"] = warnings
+        return result
 
-        result = read_tail(canonical_path, target)
-        return {
-            **result,
-            "mode": "tail",
-            "target_type": "line_count",
-        }
+    # Handle head mode - read first N lines efficiently
+    if mode == "head":
+        result = read_head(canonical_path, limit)
+        result["mode"] = "head"
+        result["lines_returned"] = result.pop("lines_read", result["end_line"])
+        if warnings:
+            result["warnings"] = warnings
+        return result
 
+    # Read file for lines/semantic modes
     lines = read_file_lines(canonical_path)
     file_content = read_file_content(canonical_path)
+    total_lines = len(lines)
 
-    if isinstance(target, int):
-        # Use semantic chunking if mode is "semantic" and tree-sitter is available
-        if mode == "semantic":
-            try:
-                chunk_content, start_line, end_line = get_semantic_chunk(
-                    canonical_path, file_content, target
-                )
-                return {
-                    "content": chunk_content,
-                    "start_line": start_line,
-                    "end_line": end_line,
-                    "total_lines": len(lines),
-                    "mode": mode,
-                    "target_type": "line_number",
-                }
-            except Exception:
-                # Fall back to line-based reading
-                pass
+    # Determine starting position
+    start_line = offset
+    match_info: dict = {}
 
-        # Default line-based reading
-        start_line = max(1, target)
-        end_line = min(len(lines), start_line + 20)
-
-        content_lines = lines[start_line - 1 : end_line]
-        content = "".join(content_lines)
-
-        return {
-            "content": content,
-            "start_line": start_line,
-            "end_line": end_line,
-            "total_lines": len(lines),
-            "mode": mode,
-            "target_type": "line_number",
-        }
-
-    else:
-        matches = search_file(canonical_path, str(target), fuzzy=True)
-
+    if pattern is not None:
+        # Search for pattern
+        matches = search_file(canonical_path, pattern, fuzzy=True)
         if not matches:
             return {
                 "content": "",
-                "error": f"Pattern '{target}' not found in file",
-                "total_lines": len(lines),
+                "error": f"Pattern '{pattern}' not found in file",
+                "total_lines": total_lines,
                 "mode": mode,
-                "target_type": "pattern",
             }
-
         first_match = matches[0]
-        start_line = max(1, first_match.line_number - 5)
-        end_line = min(len(lines), first_match.line_number + 15)
-
-        content_lines = lines[start_line - 1 : end_line]
-        content = "".join(content_lines)
-
-        return {
-            "content": content,
-            "start_line": start_line,
-            "end_line": end_line,
+        start_line = max(1, first_match.line_number - 5)  # Context before match
+        match_info = {
+            "pattern": pattern,
             "match_line": first_match.line_number,
             "similarity_score": first_match.similarity_score,
-            "total_lines": len(lines),
-            "mode": mode,
-            "target_type": "pattern",
-            "pattern": str(target),
         }
+
+    # Handle semantic mode
+    if mode == "semantic":
+        try:
+            chunk_content, sem_start, sem_end = get_semantic_chunk(
+                canonical_path, file_content, start_line
+            )
+            result = {
+                "content": chunk_content,
+                "start_line": sem_start,
+                "end_line": sem_end,
+                "lines_returned": sem_end - sem_start + 1,
+                "total_lines": total_lines,
+                "mode": "semantic",
+                **match_info,
+            }
+            if warnings:
+                result["warnings"] = warnings
+            return result
+        except Exception:
+            # Fall back to line-based reading
+            pass
+
+    # Line-based reading
+    end_line = min(total_lines, start_line + limit - 1)
+    content_lines = lines[start_line - 1 : end_line]
+    content = "".join(content_lines)
+
+    result = {
+        "content": content,
+        "start_line": start_line,
+        "end_line": end_line,
+        "lines_returned": len(content_lines),
+        "total_lines": total_lines,
+        "mode": mode,
+        "truncated": end_line < start_line + limit - 1 and end_line < total_lines,
+        **match_info,
+    }
+    if warnings:
+        result["warnings"] = warnings
+    return result
 
 
 def _change_result_to_dict(r: ChangeResult) -> dict:

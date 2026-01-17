@@ -114,11 +114,9 @@ class TestDocumentationWorkflows:
             first_match = module_results["results"][0]
             line_num = first_match["line_number"]
 
-            content = read_content(
-                str(nodejs_doc), line_num, mode="lines", context_lines=3
-            )
+            content = read_content(str(nodejs_doc), offset=line_num, limit=20)
             assert "content" in content
-            assert content["target_type"] == "line_number"
+            assert content["mode"] == "lines"
 
 
 class TestTailMode:
@@ -137,14 +135,13 @@ class TestTailMode:
             return  # Skip if file doesn't exist
 
         # Read last 10 lines
-        result = read_content(str(doc), 10, mode="tail")
+        result = read_content(str(doc), limit=10, mode="tail")
 
         assert "content" in result
         assert "start_line" in result
         assert "end_line" in result
         assert "total_lines" in result
         assert result["mode"] == "tail"
-        assert result["target_type"] == "line_count"
 
         # end_line should equal total_lines (reading to the end)
         assert result["end_line"] == result["total_lines"]
@@ -153,47 +150,75 @@ class TestTailMode:
         expected_start = max(1, result["total_lines"] - 10 + 1)
         assert result["start_line"] == expected_start
 
-    def test_read_content_tail_mode_requires_int_target(self):
-        """Raises error for string target in tail mode."""
+    def test_read_content_tail_mode_requires_positive_limit(self):
+        """Raises error for zero or negative limit."""
         doc = self.test_data_dir / "markdown" / "fastapi-docs.md"
 
         if not doc.exists():
             return  # Skip if file doesn't exist
 
-        result = read_content(str(doc), "some_pattern", mode="tail")
+        result = read_content(str(doc), limit=0, mode="tail")
 
         # Should return error in result
         assert "error" in result
-        assert "integer" in result["error"].lower() or "int" in result["error"].lower()
+        assert "limit" in result["error"].lower()
 
-    def test_read_content_tail_mode_requires_positive_target(self):
-        """Raises error for zero or negative target."""
+    def test_read_content_head_mode(self):
+        """read_content with mode=head returns first N lines."""
         doc = self.test_data_dir / "markdown" / "fastapi-docs.md"
 
         if not doc.exists():
             return  # Skip if file doesn't exist
 
-        result = read_content(str(doc), 0, mode="tail")
+        # Read first 10 lines
+        result = read_content(str(doc), limit=10, mode="head")
 
-        # Should return error in result
-        assert "error" in result
-        assert "positive" in result["error"].lower()
+        assert "content" in result
+        assert "start_line" in result
+        assert "end_line" in result
+        assert "total_lines" in result
+        assert result["mode"] == "head"
 
-    def test_read_content_tail_mode_with_existing_modes(self):
-        """Tail mode doesn't affect other modes."""
+        # start_line should be 1
+        assert result["start_line"] == 1
+        # lines_returned should be min(10, total_lines)
+        assert result["lines_returned"] == min(10, result["total_lines"])
+
+    def test_read_content_modes_comparison(self):
+        """Different modes work correctly."""
         doc = self.test_data_dir / "markdown" / "fastapi-docs.md"
 
         if not doc.exists():
             return  # Skip if file doesn't exist
 
-        # Existing line mode should still work
-        line_result = read_content(str(doc), 1, mode="lines")
+        # Line mode with offset
+        line_result = read_content(str(doc), offset=10, limit=20)
         assert "content" in line_result
         assert line_result["mode"] == "lines"
-        assert line_result["target_type"] == "line_number"
+        assert line_result["start_line"] == 10
 
-        # Tail mode should work
-        tail_result = read_content(str(doc), 5, mode="tail")
+        # Head mode
+        head_result = read_content(str(doc), limit=5, mode="head")
+        assert "content" in head_result
+        assert head_result["mode"] == "head"
+        assert head_result["start_line"] == 1
+
+        # Tail mode
+        tail_result = read_content(str(doc), limit=5, mode="tail")
         assert "content" in tail_result
         assert tail_result["mode"] == "tail"
-        assert tail_result["target_type"] == "line_count"
+        assert tail_result["end_line"] == tail_result["total_lines"]
+
+    def test_read_content_offset_ignored_in_tail_mode(self):
+        """Offset is ignored in tail mode with warning."""
+        doc = self.test_data_dir / "markdown" / "fastapi-docs.md"
+
+        if not doc.exists():
+            return  # Skip if file doesn't exist
+
+        result = read_content(str(doc), offset=50, limit=5, mode="tail")
+        assert "content" in result
+        assert result["mode"] == "tail"
+        # Should have a warning about ignored offset
+        assert "warnings" in result
+        assert any("offset ignored" in w for w in result["warnings"])

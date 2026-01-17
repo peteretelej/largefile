@@ -157,9 +157,7 @@ class TestCodebaseWorkflows:
 
             # Read the specific function with more context
             line_num = result["line_number"]
-            detailed_content = read_content(
-                str(vscode_extension), line_num, mode="lines"
-            )
+            detailed_content = read_content(str(vscode_extension), offset=line_num)
             assert "content" in detailed_content
 
     def test_safe_code_editing_preview(self):

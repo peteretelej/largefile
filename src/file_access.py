@@ -334,6 +334,63 @@ def read_tail(file_path: str, num_lines: int) -> dict:
         ) from e
 
 
+def read_head(file_path: str, num_lines: int) -> dict:
+    """Read first N lines efficiently.
+
+    Args:
+        file_path: Path to the file to read.
+        num_lines: Number of lines to read from the start.
+
+    Returns:
+        Dictionary with content, start_line, end_line, lines_read, and total_lines.
+    """
+    canonical_path = normalize_path(file_path)
+    file_info = get_file_info(canonical_path)
+    encoding = detect_file_encoding(canonical_path)
+    file_size = file_info["size"]
+
+    try:
+        with open(canonical_path, encoding=encoding) as f:
+            if file_size < config.memory_threshold:
+                # Small file: read all lines into memory
+                lines = f.readlines()
+                total = len(lines)
+                content = "".join(lines[:num_lines])
+                lines_read = min(num_lines, total)
+                return {
+                    "content": content,
+                    "start_line": 1,
+                    "end_line": lines_read,
+                    "lines_read": lines_read,
+                    "total_lines": total,
+                }
+
+            # Large file: read line by line up to limit, count total
+            head_lines: list[str] = []
+            total = 0
+            for line in f:
+                total += 1
+                if len(head_lines) < num_lines:
+                    head_lines.append(line)
+
+            content = "".join(head_lines)
+            lines_read = len(head_lines)
+
+            return {
+                "content": content,
+                "start_line": 1,
+                "end_line": lines_read,
+                "lines_read": lines_read,
+                "total_lines": total,
+            }
+    except (FileNotFoundError, PermissionError, IsADirectoryError) as e:
+        raise FileAccessError(f"Cannot read file {file_path}: {e}") from e
+    except UnicodeDecodeError as e:
+        raise FileAccessError(
+            f"Cannot decode file {file_path} with encoding {encoding}: {e}"
+        ) from e
+
+
 def write_file_content(file_path: str, content: str) -> None:
     """Write content to file atomically using temp file + rename with auto-detected encoding."""
     canonical_path = normalize_path(file_path)
