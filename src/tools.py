@@ -142,8 +142,12 @@ def search_content(
     absolute_file_path: str,
     pattern: str,
     max_results: int = 20,
-    context_lines: int = 2,
+    context_lines: int = 3,
     fuzzy: bool = True,
+    regex: bool = False,
+    case_sensitive: bool = True,
+    invert: bool = False,
+    count_only: bool = False,
 ) -> dict:
     """Find patterns with fuzzy matching and context using auto-detected encoding.
 
@@ -153,17 +157,45 @@ def search_content(
 
     Parameters:
     - absolute_file_path: Absolute path to the file
-    - pattern: Search pattern (exact or fuzzy matching)
+    - pattern: Search pattern (exact, fuzzy, or regex matching)
     - max_results: Maximum number of results to return
     - context_lines: Number of context lines before/after match
     - fuzzy: Enable fuzzy matching (default True)
+    - regex: Enable Python regex matching (default False)
+    - case_sensitive: Case sensitive search (default True, ignored for fuzzy)
+    - invert: Return non-matching lines (default False)
+    - count_only: Return just match count, not content (default False)
 
     Returns:
     - List of search results with line numbers, matches, and context
+    - Or count object if count_only=True
     """
     canonical_path = normalize_path(absolute_file_path)
 
-    matches = search_file(canonical_path, pattern, fuzzy)
+    # Build warnings for ignored params in count_only mode
+    warnings: list[str] = []
+    if count_only:
+        if max_results != 20:
+            warnings.append("max_results ignored in count_only mode")
+        if context_lines != 3:
+            warnings.append("context_lines ignored in count_only mode")
+
+    # Perform search (no limit for count_only mode to get accurate count)
+    matches = search_file(canonical_path, pattern, fuzzy, regex, case_sensitive, invert)
+
+    # Count-only mode: return early with just the count
+    if count_only:
+        count_result: dict = {
+            "count": len(matches),
+            "pattern": pattern,
+            "fuzzy_enabled": fuzzy,
+            "regex_enabled": regex,
+            "case_sensitive": case_sensitive,
+            "inverted": invert,
+        }
+        if warnings:
+            count_result["warnings"] = warnings
+        return count_result
 
     lines = read_file_lines(canonical_path)
     content = read_file_content(canonical_path)
@@ -230,6 +262,9 @@ def search_content(
         "total_matches": len(matches),
         "pattern": pattern,
         "fuzzy_enabled": fuzzy,
+        "regex_enabled": regex,
+        "case_sensitive": case_sensitive,
+        "inverted": invert,
     }
 
 

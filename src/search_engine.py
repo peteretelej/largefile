@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass
 
 from .config import config
@@ -14,18 +15,39 @@ class SearchMatch:
     match_type: str
 
 
-def find_exact_matches(lines: list[str], pattern: str) -> list[SearchMatch]:
-    """Find exact string matches in file lines."""
+def find_exact_matches(
+    lines: list[str],
+    pattern: str,
+    case_sensitive: bool = True,
+    invert: bool = False,
+) -> list[SearchMatch]:
+    """Find exact string matches in file lines.
+
+    Args:
+        lines: File lines to search
+        pattern: Pattern to search for
+        case_sensitive: Whether to match case (default True)
+        invert: Return non-matching lines instead (default False)
+    """
     matches = []
+    search_pattern = pattern if case_sensitive else pattern.lower()
 
     for line_num, line in enumerate(lines, 1):
-        if pattern in line:
+        line_content = line.rstrip("\n\r")
+        compare_line = line_content if case_sensitive else line_content.lower()
+        is_match = search_pattern in compare_line
+
+        if invert:
+            is_match = not is_match
+
+        if is_match:
+            match_type = "exact" if not invert else "exact_inverted"
             matches.append(
                 SearchMatch(
                     line_number=line_num,
-                    content=line.rstrip("\n\r"),
+                    content=line_content,
                     similarity_score=1.0,
-                    match_type="exact",
+                    match_type=match_type,
                 )
             )
 
@@ -33,9 +55,19 @@ def find_exact_matches(lines: list[str], pattern: str) -> list[SearchMatch]:
 
 
 def find_fuzzy_matches(
-    lines: list[str], pattern: str, threshold: float
+    lines: list[str],
+    pattern: str,
+    threshold: float,
+    invert: bool = False,
 ) -> list[SearchMatch]:
-    """Use rapidfuzz for fuzzy matching."""
+    """Use rapidfuzz for fuzzy matching.
+
+    Args:
+        lines: File lines to search
+        pattern: Pattern to search for
+        threshold: Minimum similarity score (0.0-1.0)
+        invert: Return lines below threshold instead (default False)
+    """
     try:
         from rapidfuzz import fuzz
     except ImportError as e:
@@ -43,19 +75,70 @@ def find_fuzzy_matches(
 
     matches = []
     for line_num, line in enumerate(lines, 1):
+        line_content = line.rstrip("\n\r")
         similarity = fuzz.ratio(pattern, line.strip()) / 100.0
+        is_match = similarity >= threshold
 
-        if similarity >= threshold:
+        if invert:
+            is_match = not is_match
+
+        if is_match:
+            match_type = "fuzzy" if not invert else "fuzzy_inverted"
             matches.append(
                 SearchMatch(
                     line_number=line_num,
-                    content=line.rstrip("\n\r"),
+                    content=line_content,
                     similarity_score=similarity,
-                    match_type="fuzzy",
+                    match_type=match_type,
                 )
             )
 
     return sorted(matches, key=lambda x: x.similarity_score, reverse=True)
+
+
+def find_regex_matches(
+    lines: list[str],
+    pattern: str,
+    case_sensitive: bool = True,
+    invert: bool = False,
+) -> list[SearchMatch]:
+    """Find lines matching a regex pattern.
+
+    Args:
+        lines: File lines to search
+        pattern: Regular expression pattern
+        case_sensitive: Whether to match case (default True)
+        invert: Return non-matching lines instead (default False)
+
+    Raises:
+        SearchError: If regex pattern is invalid
+    """
+    flags = 0 if case_sensitive else re.IGNORECASE
+    try:
+        compiled = re.compile(pattern, flags)
+    except re.error as e:
+        raise SearchError(f"Invalid regex pattern: {e}") from e
+
+    matches = []
+    for line_num, line in enumerate(lines, 1):
+        line_content = line.rstrip("\n\r")
+        is_match = compiled.search(line_content) is not None
+
+        if invert:
+            is_match = not is_match
+
+        if is_match:
+            match_type = "regex" if not invert else "regex_inverted"
+            matches.append(
+                SearchMatch(
+                    line_number=line_num,
+                    content=line_content,
+                    similarity_score=1.0,
+                    match_type=match_type,
+                )
+            )
+
+    return matches
 
 
 def combine_results(
@@ -72,24 +155,51 @@ def combine_results(
     return sorted(combined, key=lambda x: (x.line_number, -x.similarity_score))
 
 
-def search_file(file_path: str, pattern: str, fuzzy: bool = True) -> list[SearchMatch]:
-    """Search file content using auto-detected encoding. Returns clear results or clear errors."""
+def search_file(
+    file_path: str,
+    pattern: str,
+    fuzzy: bool = True,
+    regex: bool = False,
+    case_sensitive: bool = True,
+    invert: bool = False,
+) -> list[SearchMatch]:
+    """Search file content using auto-detected encoding.
+
+    Args:
+        file_path: Path to file to search
+        pattern: Search pattern
+        fuzzy: Enable fuzzy matching (default True)
+        regex: Enable regex matching (default False)
+        case_sensitive: Case sensitive search (default True)
+        invert: Return non-matching lines (default False)
+
+    Raises:
+        SearchError: If regex and fuzzy are both True, or invalid regex
+    """
+    # Validate parameter combinations
+    if regex and fuzzy:
+        raise SearchError("Cannot use regex and fuzzy together")
 
     try:
         lines = read_file_lines(file_path)
     except Exception as e:
         raise SearchError(f"Cannot read {file_path}: {e}") from e
 
-    exact_matches = find_exact_matches(lines, pattern)
-    if exact_matches and not fuzzy:
-        return exact_matches
+    # Route to appropriate matcher
+    if regex:
+        return find_regex_matches(lines, pattern, case_sensitive, invert)
 
     if fuzzy:
         fuzzy_threshold = config.fuzzy_threshold
-        fuzzy_matches = find_fuzzy_matches(lines, pattern, fuzzy_threshold)
-        return combine_results(exact_matches, fuzzy_matches)
+        fuzzy_matches = find_fuzzy_matches(lines, pattern, fuzzy_threshold, invert)
+        if not invert:
+            # For non-inverted fuzzy, also check exact matches
+            exact_matches = find_exact_matches(lines, pattern, case_sensitive, invert)
+            return combine_results(exact_matches, fuzzy_matches)
+        return fuzzy_matches
 
-    return exact_matches
+    # Exact match mode
+    return find_exact_matches(lines, pattern, case_sensitive, invert)
 
 
 def find_similar_patterns(
