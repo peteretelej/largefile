@@ -14,10 +14,10 @@ Five tools that work together for progressive file exploration:
 
 | Tool | Purpose |
 |------|---------|
-| **`get_overview`** | File structure with Tree-sitter semantic analysis, line counts, and search hints |
-| **`search_content`** | Pattern search with fuzzy matching, context lines, and semantic information |
-| **`read_content`** | Targeted reading by line number, pattern, or tail mode for log files |
-| **`edit_content`** | Search/replace editing with batch support, automatic backups, and preview mode |
+| **`get_overview`** | File structure with Tree-sitter semantic analysis, binary detection, and long line stats |
+| **`search_content`** | Pattern search with fuzzy, regex, count-only, and invert matching modes |
+| **`read_content`** | Targeted reading by offset/limit, pattern, tail mode, or head mode |
+| **`edit_content`** | Batch search/replace editing with automatic backups and preview mode |
 | **`revert_edit`** | Recover from bad edits by reverting to previous backup states |
 
 ## Quick Start
@@ -61,7 +61,7 @@ classes = search_content("/path/to/django-models.py", "class ", max_results=20)
 # Returns: Model classes with line numbers and context
 
 # AI examines specific class implementation
-model_code = read_content("/path/to/django-models.py", "class User", mode="semantic")
+model_code = read_content("/path/to/django-models.py", pattern="class User", mode="semantic")
 # Returns: Complete class definition with all methods
 ```
 
@@ -80,13 +80,12 @@ model_code = read_content("/path/to/django-models.py", "class User", mode="seman
 install_sections = search_content("/path/to/readme.md", "install", fuzzy=True, context_lines=3)
 
 # AI reads the installation section
-install_content = read_content("/path/to/readme.md", "## Installation", mode="semantic")
+install_content = read_content("/path/to/readme.md", pattern="## Installation", mode="semantic")
 
 # AI replaces pip with uv
 edit_result = edit_content(
     "/path/to/readme.md",
-    search_text="pip install anthropic",
-    replace_text="uv add anthropic",
+    changes=[{"search": "pip install anthropic", "replace": "uv add anthropic"}],
     preview=True
 )
 ```
@@ -107,15 +106,19 @@ overview = get_overview("/path/to/production.log")
 # Returns: 150,000 lines, 2.1GB file size
 
 # AI reads the last 1000 lines efficiently (no need to know total line count)
-recent = read_content("/path/to/production.log", 1000, mode="tail")
+recent = read_content("/path/to/production.log", limit=1000, mode="tail")
 # Returns: Last 1000 lines without loading entire file
 
-# AI searches for critical errors
-errors = search_content("/path/to/production.log", "CRITICAL|ERROR", fuzzy=True, max_results=10)
+# AI counts errors efficiently
+error_count = search_content("/path/to/production.log", "ERROR", count_only=True, fuzzy=False)
+# Returns: {"count": 47, ...} without loading all content
+
+# AI searches for critical errors with context
+errors = search_content("/path/to/production.log", "CRITICAL", fuzzy=False, max_results=10)
 
 # AI examines context around each error
-for error in errors:
-    context = read_content("/path/to/production.log", error.line_number, mode="lines")
+for error in errors["results"]:
+    context = read_content("/path/to/production.log", offset=error["line_number"], limit=20)
     # Shows surrounding log entries for debugging
 ```
 
@@ -136,16 +139,14 @@ usages = search_content("/path/to/codebase.py", "process_data", fuzzy=False, max
 # AI previews the changes
 preview = edit_content(
     "/path/to/codebase.py",
-    search_text="process_data",
-    replace_text="transform_data",
+    changes=[{"search": "process_data", "replace": "transform_data"}],
     preview=True
 )
 
 # AI applies changes after confirmation
 result = edit_content(
     "/path/to/codebase.py",
-    search_text="process_data",
-    replace_text="transform_data",
+    changes=[{"search": "process_data", "replace": "transform_data"}],
     preview=False
 )
 # Creates automatic backup before changes
@@ -194,6 +195,26 @@ result = revert_edit("/path/to/broken_file.py", backup_id="20240115_143022")
 # Returns: available_backups list for reference
 ```
 
+### Advanced Search with Regex
+
+**AI Question:** _"Find all IP addresses in this server log file."_
+
+**AI Assistant workflow:**
+
+```python
+# AI uses regex mode to find IP address patterns
+results = search_content(
+    "/path/to/server.log",
+    r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}",
+    regex=True,
+    fuzzy=False,
+    max_results=50
+)
+
+# AI finds non-INFO lines (invert mode like grep -v)
+non_info = search_content("/path/to/app.log", "INFO", invert=True, fuzzy=False)
+```
+
 ### Exploring API Documentation
 
 **AI Question:** _"What are all the available methods in this large API documentation file and can you show me examples of authentication?"_
@@ -217,7 +238,7 @@ methods = search_content("/path/to/api-docs.md", "###", max_results=30)
 auth_examples = search_content("/path/to/api-docs.md", "auth", fuzzy=True, context_lines=5)
 
 # AI reads complete authentication section
-auth_section = read_content("/path/to/api-docs.md", "## Authentication", mode="semantic")
+auth_section = read_content("/path/to/api-docs.md", pattern="## Authentication", mode="semantic")
 ```
 
 ## File Size Handling
@@ -251,7 +272,7 @@ LARGEFILE_MMAP_THRESHOLD_MB=500         # Memory mapping limit
 # Search settings
 LARGEFILE_FUZZY_THRESHOLD=0.8           # Fuzzy match sensitivity (0.0-1.0)
 LARGEFILE_MAX_SEARCH_RESULTS=20         # Result limit per search
-LARGEFILE_CONTEXT_LINES=2               # Context lines around matches
+LARGEFILE_CONTEXT_LINES=3               # Context lines around matches
 
 # Error recovery
 LARGEFILE_SIMILAR_MATCH_LIMIT=3         # Similar matches shown on edit failure
@@ -272,9 +293,12 @@ LARGEFILE_ENABLE_TREE_SITTER=true       # Semantic features
 
 - **Search/replace editing** - Eliminates LLM line number errors with fuzzy matching
 - **Batch operations** - Apply multiple changes atomically in one call
+- **Regex & invert search** - Powerful pattern matching with grep-like features
+- **Count-only mode** - Efficiently count matches without loading content
 - **Smart error recovery** - Failed edits show similar matches with suggestions
 - **Backup & revert** - Automatic backups with full revert capability
-- **Tail mode** - Read log file endings without knowing total line count
+- **Tail & head modes** - Read file endings/beginnings without full scan
+- **Binary detection** - Warns when files appear binary
 - **Semantic awareness** - Tree-sitter integration for code structure
 - **Memory efficient** - Handles files of any size via tiered access strategy
 
