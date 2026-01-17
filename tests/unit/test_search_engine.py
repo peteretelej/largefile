@@ -275,7 +275,7 @@ class TestSearchContentTool:
         """count_only=True returns just the count."""
         result = search_content(temp_file, "error", fuzzy=False, count_only=True)
         assert "count" in result
-        assert result["count"] == 3  # error, error:, Error
+        assert result["count"] == 3  # errors, error:, process_error
         assert "results" not in result
         assert result["fuzzy_enabled"] is False
         assert result["regex_enabled"] is False
@@ -316,7 +316,7 @@ class TestSearchContentTool:
         result = search_content(
             temp_file, "error", fuzzy=False, case_sensitive=False, count_only=True
         )
-        assert result["count"] == 4  # error (2), Error (2)
+        assert result["count"] == 4  # errors, error:, Error, process_error
         assert result["case_sensitive"] is False
 
     def test_invert_mode(self, temp_file):

@@ -457,7 +457,7 @@ def read_content(
         "lines_returned": len(content_lines),
         "total_lines": total_lines,
         "mode": mode,
-        "truncated": end_line < start_line + limit - 1 and end_line < total_lines,
+        "truncated": end_line < total_lines,
         **match_info,
     }
     if warnings:
