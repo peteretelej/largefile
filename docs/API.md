@@ -9,9 +9,9 @@ The Largefile MCP Server provides 5 tools for working with large text files:
 | Tool | Purpose |
 |------|---------|
 | **get_overview** | File structure analysis with Tree-sitter semantic outline |
-| **search_content** | Pattern search with fuzzy matching and context |
-| **read_content** | Targeted reading by line, pattern, or tail mode |
-| **edit_content** | Search/replace editing with batch support |
+| **search_content** | Pattern search with fuzzy, regex, and invert matching |
+| **read_content** | Targeted reading by offset, pattern, tail, or head mode |
+| **edit_content** | Batch search/replace editing with automatic backups |
 | **revert_edit** | Recover from bad edits via backup restoration |
 
 All tools require absolute file paths and support auto-detected text encoding.
@@ -26,31 +26,52 @@ Analyze file structure with semantic outline and search hints.
 ```python
 def get_overview(
     absolute_file_path: str
-) -> FileOverview
+) -> dict
 ```
 
 **Parameters:**
 - `absolute_file_path`: Absolute path to the file (required)
 
-**Returns:** `FileOverview` object with:
+**Returns:** Dictionary with:
 - `line_count`: Total lines in file
 - `file_size`: File size in bytes
-- `encoding`: Auto-detected file encoding
-- `has_long_lines`: True if any line exceeds 1000 characters
+- `encoding`: Auto-detected file encoding (or `None` for binary)
+- `is_binary`: `True` if file appears to be binary
+- `binary_hint`: Hint about binary type (e.g., "image", "compressed") or `None`
+- `long_lines`: Object with detailed long line statistics
 - `outline`: Hierarchical structure via Tree-sitter (if supported)
 - `search_hints`: Suggested search patterns for exploration
+
+**Long Lines Object:**
+```python
+{
+    "has_long_lines": True,      # Any line exceeds threshold
+    "count": 47,                  # Number of long lines
+    "max_length": 15000,          # Longest line length
+    "threshold": 1000             # Configured threshold
+}
+```
 
 **Example:**
 ```python
 overview = get_overview("/path/to/large_file.py")
-print(f"File has {overview.line_count} lines")
-for item in overview.outline:
-    print(f"{item.type}: {item.name} at line {item.line_number}")
+print(f"File has {overview['line_count']} lines")
+
+# Check for binary file
+if overview["is_binary"]:
+    print(f"Binary file detected: {overview['binary_hint']}")
+else:
+    for item in overview["outline"]:
+        print(f"{item['type']}: {item['name']} at line {item['line_number']}")
+
+# Check for long lines
+if overview["long_lines"]["has_long_lines"]:
+    print(f"Warning: {overview['long_lines']['count']} lines exceed {overview['long_lines']['threshold']} chars")
 ```
 
 ### search_content
 
-Find patterns with fuzzy matching and semantic context.
+Find patterns with fuzzy matching, regex, and semantic context.
 
 **Signature:**
 ```python
@@ -58,19 +79,41 @@ def search_content(
     absolute_file_path: str,
     pattern: str,
     max_results: int = 20,
-    context_lines: int = 2,
-    fuzzy: bool = True
-) -> List[SearchResult]
+    context_lines: int = 3,
+    fuzzy: bool = True,
+    regex: bool = False,
+    case_sensitive: bool = True,
+    invert: bool = False,
+    count_only: bool = False,
+) -> dict
 ```
 
 **Parameters:**
 - `absolute_file_path`: Absolute path to the file (required)
-- `pattern`: Search pattern - exact text or fuzzy match target (required)
+- `pattern`: Search pattern - exact text, fuzzy match, or regex (required)
 - `max_results`: Maximum number of results to return (default: 20)
-- `context_lines`: Number of context lines before/after match (default: 2)
+- `context_lines`: Number of context lines before/after match (default: 3)
 - `fuzzy`: Enable fuzzy matching with similarity scoring (default: True)
+- `regex`: Enable Python regex pattern matching (default: False)
+- `case_sensitive`: Control case sensitivity for exact/regex modes (default: True, ignored for fuzzy)
+- `invert`: Return non-matching lines like `grep -v` (default: False)
+- `count_only`: Return only match count, not content (default: False)
 
-**Returns:** List of `SearchResult` objects with:
+**Note:** `regex=True` and `fuzzy=True` cannot be used together. Set `fuzzy=False` when using regex.
+
+**Returns (Standard Mode):** Dictionary with:
+- `results`: List of search results (see below)
+- `total_matches`: Total matches found
+- `pattern`: The search pattern used
+- `fuzzy_enabled`, `regex_enabled`, `case_sensitive`, `inverted`: Search options used
+
+**Returns (count_only Mode):** Dictionary with:
+- `count`: Number of matches found
+- `pattern`: The search pattern used
+- `fuzzy_enabled`, `regex_enabled`, `case_sensitive`, `inverted`: Search options used
+- `warnings`: Array of warnings about ignored parameters (if any)
+
+**Search Result Object:**
 - `line_number`: Line where match was found
 - `match`: The matching text (truncated if >500 chars)
 - `context_before`: Lines before the match
@@ -78,119 +121,164 @@ def search_content(
 - `semantic_context`: Tree-sitter context (e.g., "inside function foo()")
 - `similarity_score`: Fuzzy match score (0.0-1.0, 1.0 for exact matches)
 - `truncated`: True if match text was truncated for display
+- `match_type`: "exact", "fuzzy", or "regex"
 
-**Example:**
+**Examples:**
 ```python
-# Exact search
+# Exact search (disable fuzzy for precise matching)
 results = search_content("/path/to/file.py", "def process_data", fuzzy=False)
 
-# Fuzzy search for function names
+# Fuzzy search handles typos and variations
 results = search_content("/path/to/file.py", "proces_data", fuzzy=True)
-for result in results:
-    print(f"Line {result.line_number}: {result.match} (score: {result.similarity_score})")
+for r in results["results"]:
+    print(f"Line {r['line_number']}: {r['match']} (score: {r['similarity_score']})")
+
+# Regex search for IP addresses
+results = search_content(
+    "/path/to/server.log",
+    r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}",
+    regex=True,
+    fuzzy=False
+)
+
+# Count errors without returning content (efficient for large files)
+result = search_content("/path/to/app.log", "ERROR", count_only=True, fuzzy=False)
+print(f"Found {result['count']} errors")
+
+# Case-insensitive search
+results = search_content("/path/to/file.py", "error", case_sensitive=False, fuzzy=False)
+
+# Find non-DEBUG lines (invert matching like grep -v)
+results = search_content("/path/to/app.log", "DEBUG", invert=True, fuzzy=False)
 ```
 
 ### read_content
 
-Read targeted content by line number, pattern, or from end of file.
+Read targeted content by line offset, search pattern, or from file ends.
 
 **Signature:**
 ```python
 def read_content(
     absolute_file_path: str,
-    target: Union[int, str],
-    mode: str = "lines"
+    offset: int = 1,
+    limit: int = 100,
+    pattern: str | None = None,
+    mode: str = "lines",
 ) -> dict
 ```
 
 **Parameters:**
 - `absolute_file_path`: Absolute path to the file (required)
-- `target`: Line number (int) or search pattern (str) to locate content (required)
+- `offset`: Starting line number, 1-indexed (default: 1)
+- `limit`: Maximum lines to return (default: 100)
+- `pattern`: Optional search pattern to locate starting position
 - `mode`: Reading mode (default: "lines")
 
 **Reading Modes:**
-| Mode | Description | Target |
-|------|-------------|--------|
-| `"lines"` | Read from specific line number or around pattern match | Line number or pattern |
-| `"semantic"` | Use Tree-sitter to read complete semantic blocks | Line number or pattern |
-| `"tail"` | Read last N lines from end of file (efficient for logs) | Number of lines (int) |
+| Mode | Description | Uses offset | Uses limit | Uses pattern |
+|------|-------------|-------------|------------|--------------|
+| `"lines"` | Read from specific line offset | Yes | Yes | Optional |
+| `"semantic"` | Read complete semantic blocks via Tree-sitter | As start hint | No | Optional |
+| `"tail"` | Read last N lines from end (efficient for logs) | Ignored | Yes (N lines) | No |
+| `"head"` | Read first N lines from start | Ignored | Yes (N lines) | No |
 
 **Returns:** Dictionary with:
 - `content`: The requested content string
 - `start_line`, `end_line`: Line range of returned content
+- `lines_returned`: Number of lines returned
 - `total_lines`: Total lines in file
 - `mode`: The mode used
+- `truncated`: True if more content exists beyond limit (lines mode)
+- `warnings`: Array of warnings about ignored parameters (if any)
+- Pattern match info (if pattern used): `pattern`, `match_line`, `similarity_score`
 
-**Example:**
+**Examples:**
 ```python
-# Read specific line range
-content = read_content("/path/to/file.py", 42, mode="lines")
+# Read from specific line offset
+content = read_content("/path/to/file.py", offset=100, limit=50)
+# Returns lines 100-149
 
-# Read complete function containing pattern
-content = read_content("/path/to/file.py", "def main", mode="semantic")
+# Read first 200 lines (head mode)
+content = read_content("/path/to/file.py", limit=200, mode="head")
 
-# Read last 500 lines of a log file (no need to know total lines)
-content = read_content("/path/to/production.log", 500, mode="tail")
-# Returns: {"content": "...", "lines_read": 500, "total_lines": 150000}
+# Read last 500 lines of a log file (tail mode - efficient, no full scan)
+content = read_content("/path/to/production.log", limit=500, mode="tail")
+# Returns: {"content": "...", "start_line": 149501, "end_line": 150000, ...}
+
+# Read around a search pattern
+content = read_content("/path/to/file.py", pattern="def main", limit=50)
+# Returns 50 lines starting near the match
+
+# Read complete function using semantic mode
+content = read_content("/path/to/file.py", pattern="def process_data", mode="semantic")
+# Returns the entire function definition
 ```
 
 ### edit_content
 
-Primary editing method using search/replace blocks. Supports single edits and batch operations.
+Edit files using search/replace with fuzzy matching and automatic backups.
 
 **Signature:**
 ```python
 def edit_content(
     absolute_file_path: str,
-    search_text: str = None,        # Single edit mode
-    replace_text: str = None,       # Single edit mode
-    changes: list[dict] = None,     # Batch edit mode
+    changes: list[dict],
     fuzzy: bool = True,
-    preview: bool = True
+    preview: bool = True,
 ) -> dict
 ```
 
 **Parameters:**
 - `absolute_file_path`: Absolute path to the file (required)
-- `search_text`: Text to find and replace (single edit mode)
-- `replace_text`: Replacement text (single edit mode)
-- `changes`: Array of `{search, replace, fuzzy?}` objects (batch edit mode)
+- `changes`: Array of change objects (required)
 - `fuzzy`: Enable fuzzy matching (default: True, can be overridden per-change)
 - `preview`: Show preview without making changes (default: True)
 
-> **Note:** Use either `search_text`/`replace_text` OR `changes`, not both.
+**Change Object:**
+```python
+{
+    "search": "text to find",       # Required
+    "replace": "replacement text",  # Required
+    "fuzzy": True                   # Optional: override global fuzzy setting
+}
+```
 
-**Returns (Single Edit):**
-- `success`: True if edit succeeded
-- `preview`: Diff preview showing before/after
-- `changes_made`: Number of replacements
-- `line_number`: Line where change occurred
-- `similarity_used`: Fuzzy match score (if used)
-- `backup_created`: Backup path (if preview=False)
-- `similar_matches`: Suggestions if edit failed (see Enhanced Errors below)
-
-**Returns (Batch Edit):**
+**Returns:** Dictionary with:
 - `success`: True if all changes succeeded
 - `changes_applied`: Count of successful changes
 - `changes_failed`: Count of failed changes
 - `results`: Per-change results with individual status
 - `preview`: Combined diff preview
-- `backup_created`: Backup path (if preview=False)
+- `backup_created`: Backup path (if preview=False and changes made)
 
-**Example - Single Edit:**
+**Per-Change Result:**
+- `index`: Position in changes array
+- `success`: True if this change succeeded
+- `line_number`: Line where change occurred (if successful)
+- `match_type`: "exact" or "fuzzy"
+- `similarity`: Fuzzy match score (if used)
+- `error`: Error message (if failed)
+- `similar_matches`: Suggestions if change failed (see Enhanced Errors below)
+
+**Examples:**
 ```python
-# Preview mode (safe, no changes made)
-result = edit_content("/path/to/file.py", "old_function_name", "new_function_name", preview=True)
+# Single edit (use array with one change)
+result = edit_content(
+    "/path/to/file.py",
+    changes=[{"search": "old_name", "replace": "new_name"}],
+    preview=True
+)
 print(result["preview"])
 
-# Apply changes (creates backup)
-result = edit_content("/path/to/file.py", "old_function_name", "new_function_name", preview=False)
+# Apply the change (creates backup)
+result = edit_content(
+    "/path/to/file.py",
+    changes=[{"search": "old_name", "replace": "new_name"}],
+    preview=False
+)
 print(f"Backup created at: {result['backup_created']}")
-```
 
-**Example - Batch Edit:**
-```python
-# Apply multiple changes atomically
+# Batch edit - multiple changes atomically
 result = edit_content(
     "/path/to/file.py",
     changes=[
@@ -213,12 +301,15 @@ When an edit fails (pattern not found), the response includes helpful suggestion
 ```python
 {
     "success": False,
-    "search_attempted": "def proces_data(",
-    "similar_matches": [
-        {"line": 42, "content": "def process_data(", "similarity": 0.92},
-        {"line": 156, "content": "def process_data_batch(", "similarity": 0.85}
-    ],
-    "suggestion": "Did you mean 'def process_data(' on line 42?"
+    "results": [{
+        "index": 0,
+        "success": False,
+        "error": "Search text not found",
+        "similar_matches": [
+            {"line": 42, "content": "def process_data(", "similarity": 0.92},
+            {"line": 156, "content": "def process_data_batch(", "similarity": 0.85}
+        ]
+    }]
 }
 ```
 
@@ -255,8 +346,9 @@ print(f"Current state saved as: {result['current_saved_as']['id']}")
 # Revert to specific backup
 result = revert_edit("/path/to/file.py", backup_id="20240115_143022")
 
-# List available backups without reverting
-result = revert_edit("/path/to/nonexistent.py")  # Returns available_backups
+# Check available backups
+for backup in result["available_backups"]:
+    print(f"{backup['id']}: {backup['timestamp']} ({backup['size']} bytes)")
 ```
 
 **Backup Info Structure:**
@@ -273,102 +365,61 @@ result = revert_edit("/path/to/nonexistent.py")  # Returns available_backups
 
 ### FileOverview
 ```python
-@dataclass
-class FileOverview:
-    line_count: int
-    file_size: int
-    encoding: str
-    has_long_lines: bool
-    outline: List[OutlineItem]
-    search_hints: List[str]
-```
-
-### OutlineItem
-```python
-@dataclass
-class OutlineItem:
-    name: str                    # Function/class name
-    type: str                    # "function", "class", "method", "import"
-    line_number: int            # Starting line
-    end_line: int               # Ending line
-    children: List[OutlineItem] # Nested items (methods in class)
-    line_count: int             # Total lines in item
+{
+    "line_count": 1500,
+    "file_size": 45000,
+    "encoding": "utf-8",
+    "is_binary": False,
+    "binary_hint": None,
+    "long_lines": {
+        "has_long_lines": True,
+        "count": 47,
+        "max_length": 15000,
+        "threshold": 1000
+    },
+    "outline": [...],
+    "search_hints": [...]
+}
 ```
 
 ### SearchResult
 ```python
-@dataclass
-class SearchResult:
-    line_number: int
-    match: str
-    context_before: List[str]
-    context_after: List[str]
-    semantic_context: str
-    similarity_score: float
-    truncated: bool
-    submatches: List[Dict[str, int]]  # [{"start": 10, "end": 15}]
+{
+    "line_number": 42,
+    "match": "def process_data(self, items):",
+    "context_before": ["", "class DataProcessor:"],
+    "context_after": ["    for item in items:", "        ..."],
+    "semantic_context": "inside class DataProcessor",
+    "similarity_score": 1.0,
+    "truncated": False,
+    "match_type": "exact"
+}
 ```
 
-### EditResult (Single Edit)
+### EditResult
 ```python
-@dataclass
-class EditResult:
-    success: bool
-    preview: str
-    changes_made: int
-    line_number: int
-    match_type: str              # "exact" or "fuzzy"
-    similarity_used: float
-    backup_created: Optional[str] = None
-    # Enhanced error fields (when success=False):
-    search_attempted: Optional[str] = None
-    fuzzy_enabled: Optional[bool] = None
-    suggestion: Optional[str] = None
-    similar_matches: Optional[List[SimilarMatch]] = None
-```
-
-### BatchEditResult
-```python
-@dataclass
-class BatchEditResult:
-    success: bool                # True if all changes succeeded
-    changes_applied: int
-    changes_failed: int
-    results: List[ChangeResult]  # Per-change results
-    preview: str
-    backup_created: Optional[str] = None
-```
-
-### ChangeResult
-```python
-@dataclass
-class ChangeResult:
-    index: int                   # Position in changes array
-    success: bool
-    line_number: Optional[int] = None
-    match_type: Optional[str] = None
-    similarity: Optional[float] = None
-    error: Optional[str] = None
-    similar_matches: Optional[List[SimilarMatch]] = None
-```
-
-### SimilarMatch
-```python
-@dataclass
-class SimilarMatch:
-    line: int                    # Line number
-    content: str                 # Matching line content
-    similarity: float            # Similarity score (0.0-1.0)
+{
+    "success": True,
+    "changes_applied": 3,
+    "changes_failed": 0,
+    "results": [
+        {"index": 0, "success": True, "line_number": 42, "match_type": "exact"},
+        {"index": 1, "success": True, "line_number": 87, "match_type": "fuzzy", "similarity": 0.95},
+        {"index": 2, "success": True, "line_number": 156, "match_type": "exact"}
+    ],
+    "preview": "--- before\n+++ after\n...",
+    "backup_created": "/home/user/.largefile/backups/file.abc123.20240115_143022"
+}
 ```
 
 ### BackupInfo
 ```python
-@dataclass
-class BackupInfo:
-    id: str                      # Timestamp ID (e.g., "20240115_143022")
-    timestamp: str               # Human-readable timestamp
-    size: int                    # File size in bytes
-    path: str                    # Full path to backup file
+{
+    "id": "20240115_143022",
+    "timestamp": "2024-01-15 14:30:22",
+    "size": 4523,
+    "path": "/home/user/.largefile/backups/file.abc123.20240115_143022"
+}
 ```
 
 ## Error Handling
@@ -384,15 +435,16 @@ All tools return structured error information when operations fail:
 
 **Common Error Types:**
 - **File Access**: File not found, permission denied, encoding issues
-- **Search**: Pattern not found, invalid regex, search timeout
+- **Search**: Pattern not found, invalid regex, regex+fuzzy conflict
 - **Edit**: Search text not found, write permission denied, backup failed
-- **Tree-sitter**: Parsing failed, language not supported, timeout
+- **Tree-sitter**: Parsing failed, language not supported
 
 **Error Recovery:**
 - Tools gracefully degrade when Tree-sitter is unavailable
 - Fuzzy matching can be disabled for exact-only searches
 - Edit operations create backups before making changes
 - Clear suggestions provided for resolving common issues
+- Failed edits include similar matches to help identify typos
 
 ## Performance Considerations
 
@@ -404,6 +456,7 @@ All tools return structured error information when operations fail:
 **Search Performance:**
 - Exact matches: O(n) scan with early termination
 - Fuzzy matches: O(n*m) with configurable similarity threshold
+- Regex matches: O(n) with Python re module
 - Tree-sitter parsing: ~100ms for typical source files
 
 **Memory Usage:**

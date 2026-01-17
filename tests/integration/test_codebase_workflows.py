@@ -157,9 +157,7 @@ class TestCodebaseWorkflows:
 
             # Read the specific function with more context
             line_num = result["line_number"]
-            detailed_content = read_content(
-                str(vscode_extension), line_num, mode="lines"
-            )
+            detailed_content = read_content(str(vscode_extension), offset=line_num)
             assert "content" in detailed_content
 
     def test_safe_code_editing_preview(self):
@@ -173,14 +171,17 @@ class TestCodebaseWorkflows:
 
         # Test search and replace in preview mode
         result = edit_content(
-            str(spring_file), "class", "public class", preview=True, fuzzy=False
+            str(spring_file),
+            changes=[{"search": "class", "replace": "public class"}],
+            preview=True,
+            fuzzy=False,
         )
 
         assert "success" in result
         assert "preview" in result
-        assert "changes_made" in result
+        assert "changes_applied" in result
 
         # Verify preview mode doesn't actually modify file
         if result["success"]:
-            assert result["preview"] is True
-            assert "backup_created" not in result  # No backup in preview mode
+            assert result["preview"] is not None
+            assert result["backup_created"] is None  # No backup in preview mode

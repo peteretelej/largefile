@@ -43,11 +43,23 @@ class ChangeResult:
 
 
 @dataclass
+class LongLineStats:
+    """Statistics about long lines in a file."""
+
+    has_long_lines: bool
+    count: int
+    max_length: int
+    threshold: int
+
+
+@dataclass
 class FileOverview:
     line_count: int
     file_size: int
-    encoding: str
-    has_long_lines: bool
+    encoding: str | None  # None for binary files
+    long_lines: LongLineStats
+    is_binary: bool
+    binary_hint: str | None
     outline: list["OutlineItem"]
     search_hints: list[str]
 

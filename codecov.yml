@@ -12,8 +12,19 @@ coverage:
         threshold: 10%
         paths:
           - "src/"
+  ignore:
+    - "tests/test_data"
+    - "scripts"
+    - "htmlcov"
+    - ".coverage"
+    - "coverage.xml"
 
 comment:
-  behavior: default
   layout: "reach,diff,flags,tree"
+  behavior: default
   require_changes: false
+  require_base: false
+  require_head: true
+
+github_checks:
+  annotations: true

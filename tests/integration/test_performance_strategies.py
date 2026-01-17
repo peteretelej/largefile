@@ -202,11 +202,13 @@ class TestPerformanceStrategies:
             # Verify overview contains expected fields
             assert "line_count" in overview
             assert "file_size" in overview
-            assert "has_long_lines" in overview
+            assert "long_lines" in overview
+            assert "is_binary" in overview
             assert "search_hints" in overview
             assert "outline" in overview
 
             # Verify reasonable values
             assert overview["line_count"] > 0
             assert overview["file_size"] > 0
-            assert isinstance(overview["has_long_lines"], bool)
+            assert isinstance(overview["long_lines"]["has_long_lines"], bool)
+            assert overview["is_binary"] is False  # Text files

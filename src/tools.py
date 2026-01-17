@@ -5,17 +5,27 @@ from pathlib import Path
 from typing import Any
 
 from .config import config
-from .data_models import BackupInfo, Change, ChangeResult, FileOverview, SearchResult
-from .editor import atomic_edit_file, batch_edit_content
+from .data_models import (
+    BackupInfo,
+    Change,
+    ChangeResult,
+    FileOverview,
+    LongLineStats,
+    SearchResult,
+)
+from .editor import batch_edit_content
 from .exceptions import EditError, FileAccessError, SearchError, TreeSitterError
 from .file_access import (
     create_backup,
     detect_file_encoding,
     get_file_info,
+    get_long_line_stats,
+    is_binary_file,
     list_backups,
     normalize_path,
     read_file_content,
     read_file_lines,
+    read_head,
     read_tail,
 )
 from .search_engine import search_file
@@ -68,7 +78,7 @@ def get_overview(absolute_file_path: str) -> dict:
     """Get file structure with basic analysis using auto-detected encoding.
 
     Provides file metadata, line count, and basic structure analysis.
-    Detects long lines for truncation and returns search hints for efficient
+    Detects binary files and long lines, returns search hints for efficient
     exploration.
 
     CRITICAL: You must use an absolute file path - relative paths will fail.
@@ -78,16 +88,62 @@ def get_overview(absolute_file_path: str) -> dict:
     - absolute_file_path: Absolute path to the file
 
     Returns:
-    - FileOverview with line count, file size, detected encoding, and search hints
+    - FileOverview with line count, file size, detected encoding, binary detection,
+      long line statistics, and search hints
     """
     canonical_path = normalize_path(absolute_file_path)
     file_info = get_file_info(canonical_path)
+
+    # Check for binary file first
+    is_binary, binary_hint = is_binary_file(canonical_path)
+
+    if is_binary:
+        # Return early for binary files
+        long_lines_stats = LongLineStats(
+            has_long_lines=False,
+            count=0,
+            max_length=0,
+            threshold=config.max_line_length,
+        )
+        overview = FileOverview(
+            line_count=0,
+            file_size=file_info["size"],
+            encoding=None,
+            long_lines=long_lines_stats,
+            is_binary=True,
+            binary_hint=binary_hint,
+            outline=[],
+            search_hints=[],
+        )
+        return {
+            "line_count": overview.line_count,
+            "file_size": overview.file_size,
+            "encoding": overview.encoding,
+            "is_binary": overview.is_binary,
+            "binary_hint": overview.binary_hint,
+            "long_lines": {
+                "has_long_lines": overview.long_lines.has_long_lines,
+                "count": overview.long_lines.count,
+                "max_length": overview.long_lines.max_length,
+                "threshold": overview.long_lines.threshold,
+            },
+            "outline": [],
+            "search_hints": [],
+            "warning": "Binary file detected. Text operations may not work correctly.",
+        }
 
     lines = read_file_lines(canonical_path)
     content = read_file_content(canonical_path)
     detected_encoding = detect_file_encoding(canonical_path)
 
-    has_long_lines = any(len(line) > config.max_line_length for line in lines)
+    # Get long line stats
+    long_line_stats_dict = get_long_line_stats(lines, config.max_line_length)
+    long_lines_stats = LongLineStats(
+        has_long_lines=long_line_stats_dict["has_long_lines"],
+        count=long_line_stats_dict["count"],
+        max_length=long_line_stats_dict["max_length"],
+        threshold=long_line_stats_dict["threshold"],
+    )
 
     # Use tree-sitter for outline generation if available
     try:
@@ -113,7 +169,9 @@ def get_overview(absolute_file_path: str) -> dict:
         line_count=len(lines),
         file_size=file_info["size"],
         encoding=detected_encoding,
-        has_long_lines=has_long_lines,
+        long_lines=long_lines_stats,
+        is_binary=False,
+        binary_hint=None,
         outline=outline,
         search_hints=search_hints,
     )
@@ -122,7 +180,14 @@ def get_overview(absolute_file_path: str) -> dict:
         "line_count": overview.line_count,
         "file_size": overview.file_size,
         "encoding": overview.encoding,
-        "has_long_lines": overview.has_long_lines,
+        "is_binary": overview.is_binary,
+        "binary_hint": overview.binary_hint,
+        "long_lines": {
+            "has_long_lines": overview.long_lines.has_long_lines,
+            "count": overview.long_lines.count,
+            "max_length": overview.long_lines.max_length,
+            "threshold": overview.long_lines.threshold,
+        },
         "outline": [
             {
                 "name": item.name,
@@ -142,8 +207,12 @@ def search_content(
     absolute_file_path: str,
     pattern: str,
     max_results: int = 20,
-    context_lines: int = 2,
+    context_lines: int = 3,
     fuzzy: bool = True,
+    regex: bool = False,
+    case_sensitive: bool = True,
+    invert: bool = False,
+    count_only: bool = False,
 ) -> dict:
     """Find patterns with fuzzy matching and context using auto-detected encoding.
 
@@ -153,17 +222,45 @@ def search_content(
 
     Parameters:
     - absolute_file_path: Absolute path to the file
-    - pattern: Search pattern (exact or fuzzy matching)
+    - pattern: Search pattern (exact, fuzzy, or regex matching)
     - max_results: Maximum number of results to return
     - context_lines: Number of context lines before/after match
     - fuzzy: Enable fuzzy matching (default True)
+    - regex: Enable Python regex matching (default False)
+    - case_sensitive: Case sensitive search (default True, ignored for fuzzy)
+    - invert: Return non-matching lines (default False)
+    - count_only: Return just match count, not content (default False)
 
     Returns:
     - List of search results with line numbers, matches, and context
+    - Or count object if count_only=True
     """
     canonical_path = normalize_path(absolute_file_path)
 
-    matches = search_file(canonical_path, pattern, fuzzy)
+    # Build warnings for ignored params in count_only mode
+    warnings: list[str] = []
+    if count_only:
+        if max_results != 20:
+            warnings.append("max_results ignored in count_only mode")
+        if context_lines != 3:
+            warnings.append("context_lines ignored in count_only mode")
+
+    # Perform search (no limit for count_only mode to get accurate count)
+    matches = search_file(canonical_path, pattern, fuzzy, regex, case_sensitive, invert)
+
+    # Count-only mode: return early with just the count
+    if count_only:
+        count_result: dict = {
+            "count": len(matches),
+            "pattern": pattern,
+            "fuzzy_enabled": fuzzy,
+            "regex_enabled": regex,
+            "case_sensitive": case_sensitive,
+            "inverted": invert,
+        }
+        if warnings:
+            count_result["warnings"] = warnings
+        return count_result
 
     lines = read_file_lines(canonical_path)
     content = read_file_content(canonical_path)
@@ -230,115 +327,142 @@ def search_content(
         "total_matches": len(matches),
         "pattern": pattern,
         "fuzzy_enabled": fuzzy,
+        "regex_enabled": regex,
+        "case_sensitive": case_sensitive,
+        "inverted": invert,
     }
 
 
 @handle_tool_errors
 def read_content(
     absolute_file_path: str,
-    target: int | str,
+    offset: int = 1,
+    limit: int = 100,
+    pattern: str | None = None,
     mode: str = "lines",
 ) -> dict:
-    """Read content from specific location in file using auto-detected encoding.
+    """Read content from file with explicit offset/limit control.
 
     Read content starting from a line number or around a search pattern.
     Returns a reasonable chunk of content for LLM consumption.
 
     Parameters:
     - absolute_file_path: Absolute path to the file
-    - target: Line number or search pattern to locate content
-    - mode: "lines" for line-based reading, "semantic" for tree-sitter chunking,
-            or "tail" for reading last N lines from end of file
+    - offset: Starting line number, 1-indexed (default: 1)
+    - limit: Maximum lines to return (default: 100)
+    - pattern: Optional search pattern to locate content
+    - mode: "lines", "semantic", "tail", or "head"
 
     Returns:
-    - Content string with metadata about the read operation
+    - Content with metadata about the read operation
     """
     canonical_path = normalize_path(absolute_file_path)
+    warnings: list[str] = []
+
+    # Validate parameters
+    if offset < 1:
+        return {"error": "offset must be >= 1", "suggestion": "Use 1 for first line"}
+    if limit < 1:
+        return {"error": "limit must be >= 1", "suggestion": "Use positive limit"}
+    if mode not in ("lines", "semantic", "tail", "head"):
+        return {
+            "error": f"Invalid mode: {mode}",
+            "suggestion": "Use 'lines', 'semantic', 'tail', or 'head'",
+        }
+
+    # Check for ignored params
+    if mode in ("tail", "head") and offset != 1:
+        warnings.append(f"offset ignored in {mode} mode")
+    if pattern is not None and offset != 1:
+        warnings.append("offset ignored when pattern is set")
 
     # Handle tail mode - read last N lines efficiently
     if mode == "tail":
-        if not isinstance(target, int):
-            raise ValueError(
-                "Tail mode requires integer target (number of lines from end)"
-            )
-        if target <= 0:
-            raise ValueError("Tail mode target must be positive")
+        result = read_tail(canonical_path, limit)
+        result["mode"] = "tail"
+        result["lines_returned"] = result.pop(
+            "lines_read", result["end_line"] - result["start_line"] + 1
+        )
+        if warnings:
+            result["warnings"] = warnings
+        return result
 
-        result = read_tail(canonical_path, target)
-        return {
-            **result,
-            "mode": "tail",
-            "target_type": "line_count",
-        }
+    # Handle head mode - read first N lines efficiently
+    if mode == "head":
+        result = read_head(canonical_path, limit)
+        result["mode"] = "head"
+        result["lines_returned"] = result.pop("lines_read", result["end_line"])
+        if warnings:
+            result["warnings"] = warnings
+        return result
 
+    # Read file for lines/semantic modes
     lines = read_file_lines(canonical_path)
     file_content = read_file_content(canonical_path)
+    total_lines = len(lines)
 
-    if isinstance(target, int):
-        # Use semantic chunking if mode is "semantic" and tree-sitter is available
-        if mode == "semantic":
-            try:
-                chunk_content, start_line, end_line = get_semantic_chunk(
-                    canonical_path, file_content, target
-                )
-                return {
-                    "content": chunk_content,
-                    "start_line": start_line,
-                    "end_line": end_line,
-                    "total_lines": len(lines),
-                    "mode": mode,
-                    "target_type": "line_number",
-                }
-            except Exception:
-                # Fall back to line-based reading
-                pass
+    # Determine starting position
+    start_line = offset
+    match_info: dict = {}
 
-        # Default line-based reading
-        start_line = max(1, target)
-        end_line = min(len(lines), start_line + 20)
-
-        content_lines = lines[start_line - 1 : end_line]
-        content = "".join(content_lines)
-
-        return {
-            "content": content,
-            "start_line": start_line,
-            "end_line": end_line,
-            "total_lines": len(lines),
-            "mode": mode,
-            "target_type": "line_number",
-        }
-
-    else:
-        matches = search_file(canonical_path, str(target), fuzzy=True)
-
+    if pattern is not None:
+        # Search for pattern
+        matches = search_file(canonical_path, pattern, fuzzy=True)
         if not matches:
             return {
                 "content": "",
-                "error": f"Pattern '{target}' not found in file",
-                "total_lines": len(lines),
+                "error": f"Pattern '{pattern}' not found in file",
+                "total_lines": total_lines,
                 "mode": mode,
-                "target_type": "pattern",
             }
-
         first_match = matches[0]
-        start_line = max(1, first_match.line_number - 5)
-        end_line = min(len(lines), first_match.line_number + 15)
-
-        content_lines = lines[start_line - 1 : end_line]
-        content = "".join(content_lines)
-
-        return {
-            "content": content,
-            "start_line": start_line,
-            "end_line": end_line,
+        start_line = max(1, first_match.line_number - 5)  # Context before match
+        match_info = {
+            "pattern": pattern,
             "match_line": first_match.line_number,
             "similarity_score": first_match.similarity_score,
-            "total_lines": len(lines),
-            "mode": mode,
-            "target_type": "pattern",
-            "pattern": str(target),
         }
+
+    # Handle semantic mode
+    if mode == "semantic":
+        try:
+            chunk_content, sem_start, sem_end = get_semantic_chunk(
+                canonical_path, file_content, start_line
+            )
+            result = {
+                "content": chunk_content,
+                "start_line": sem_start,
+                "end_line": sem_end,
+                "lines_returned": sem_end - sem_start + 1,
+                "total_lines": total_lines,
+                "mode": "semantic",
+                **match_info,
+            }
+            if warnings:
+                result["warnings"] = warnings
+            return result
+        except Exception:
+            # Fall back to line-based reading
+            pass
+
+    # Line-based reading
+    end_line = min(total_lines, start_line + limit - 1)
+    content_lines = lines[start_line - 1 : end_line]
+    content = "".join(content_lines)
+
+    result = {
+        "content": content,
+        "start_line": start_line,
+        "end_line": end_line,
+        "lines_returned": len(content_lines),
+        "total_lines": total_lines,
+        "mode": mode,
+        "truncated": end_line < total_lines,
+        **match_info,
+    }
+    if warnings:
+        result["warnings"] = warnings
+    return result
 
 
 def _change_result_to_dict(r: ChangeResult) -> dict:
@@ -366,115 +490,70 @@ def _change_result_to_dict(r: ChangeResult) -> dict:
 @handle_tool_errors
 def edit_content(
     absolute_file_path: str,
-    search_text: str | None = None,
-    replace_text: str | None = None,
-    changes: list[dict[str, Any]] | None = None,
+    changes: list[dict[str, Any]],
     fuzzy: bool = True,
     preview: bool = True,
 ) -> dict:
     """PRIMARY EDITING METHOD using search/replace blocks with auto-detected encoding.
-
-    Supports both single edit and batch edit modes:
-    - Single edit: Provide search_text and replace_text
-    - Batch edit: Provide changes array for multiple edits atomically
 
     Fuzzy matching handles whitespace variations. Eliminates line number
     confusion that causes LLM errors. Creates automatic backups before changes.
 
     Parameters:
     - absolute_file_path: Absolute path to the file
-    - search_text: Text to find and replace (single edit mode)
-    - replace_text: Replacement text (single edit mode)
-    - changes: Array of {search, replace, fuzzy?} objects (batch edit mode)
+    - changes: Array of {search, replace, fuzzy?} objects (required)
     - fuzzy: Enable fuzzy matching (default True, can be overridden per-change)
     - preview: Show preview without making changes (default True)
 
     Returns:
     - EditResult with success status, preview, and change details
     """
-    # Validate parameter combinations
-    if changes is not None:
-        if search_text is not None or replace_text is not None:
-            return {
-                "error": "Cannot use 'changes' with 'search_text' or 'replace_text'",
-                "suggestion": "Use either single edit (search_text/replace_text) or batch edit (changes), not both",
-            }
-        if len(changes) == 0:
-            return {
-                "error": "Empty changes array",
-                "suggestion": "Provide at least one change in the changes array",
-            }
-        if len(changes) > config.max_batch_changes:
-            return {
-                "error": f"Too many changes: {len(changes)} exceeds limit of {config.max_batch_changes}",
-                "suggestion": f"Split into multiple calls with at most {config.max_batch_changes} changes each",
-            }
-
-        # Convert dict changes to Change objects
-        change_objects: list[Change] = []
-        for i, c in enumerate(changes):
-            if "search" not in c or "replace" not in c:
-                return {
-                    "error": f"Change at index {i} missing required 'search' or 'replace' field",
-                    "suggestion": "Each change must have 'search' and 'replace' fields",
-                }
-            change_objects.append(
-                Change(
-                    search=c["search"],
-                    replace=c["replace"],
-                    fuzzy=c.get("fuzzy"),
-                )
-            )
-
-        result = batch_edit_content(absolute_file_path, change_objects, fuzzy, preview)
-
-        response: dict[str, Any] = {
-            "success": result.success,
-            "changes_applied": result.changes_applied,
-            "changes_failed": result.changes_failed,
-            "results": [_change_result_to_dict(r) for r in result.results]
-            if result.results
-            else [],
-            "preview": result.preview,
-            "backup_created": result.backup_created,
-        }
-        return response
-
-    # Single edit mode
-    if search_text is None or replace_text is None:
+    # Validate changes array
+    if not changes:
         return {
-            "error": "Missing required parameters",
-            "suggestion": "Provide either (search_text, replace_text) for single edit or (changes) for batch edit",
+            "error": "Empty changes array",
+            "suggestion": "Provide at least one change in the changes array",
         }
 
-    result = atomic_edit_file(
-        absolute_file_path, search_text, replace_text, fuzzy, preview
-    )
+    if len(changes) > config.max_batch_changes:
+        return {
+            "error": f"Too many changes: {len(changes)} exceeds limit of {config.max_batch_changes}",
+            "suggestion": f"Split into multiple calls with at most {config.max_batch_changes} changes each",
+        }
 
-    response = {
+    # Convert dict changes to Change objects
+    change_objects: list[Change] = []
+    for i, c in enumerate(changes):
+        if "search" not in c:
+            return {
+                "error": f"Change at index {i} missing required 'search' field",
+                "suggestion": "Each change must have 'search' and 'replace' fields",
+            }
+        if "replace" not in c:
+            return {
+                "error": f"Change at index {i} missing required 'replace' field",
+                "suggestion": "Each change must have 'search' and 'replace' fields",
+            }
+        change_objects.append(
+            Change(
+                search=c["search"],
+                replace=c["replace"],
+                fuzzy=c.get("fuzzy"),
+            )
+        )
+
+    result = batch_edit_content(absolute_file_path, change_objects, fuzzy, preview)
+
+    response: dict[str, Any] = {
         "success": result.success,
+        "changes_applied": result.changes_applied,
+        "changes_failed": result.changes_failed,
+        "results": [_change_result_to_dict(r) for r in result.results]
+        if result.results
+        else [],
         "preview": result.preview,
-        "changes_made": result.changes_made,
-        "match_type": result.match_type,
-        "similarity_used": result.similarity_used,
-        "line_number": result.line_number,
         "backup_created": result.backup_created,
     }
-
-    # Include enhanced error info when edit fails
-    if not result.success:
-        if result.search_attempted:
-            response["search_attempted"] = result.search_attempted
-        if result.fuzzy_enabled is not None:
-            response["fuzzy_enabled"] = result.fuzzy_enabled
-        if result.suggestion:
-            response["suggestion"] = result.suggestion
-        if result.similar_matches:
-            response["similar_matches"] = [
-                {"line": m.line, "content": m.content, "similarity": m.similarity}
-                for m in result.similar_matches
-            ]
-
     return response
 
 
