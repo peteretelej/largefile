@@ -18,6 +18,70 @@ def normalize_path(file_path: str) -> str:
     return os.path.abspath(expanded)
 
 
+def is_binary_file(path: str, check_bytes: int = 8192) -> tuple[bool, str | None]:
+    """Check if file appears to be binary.
+
+    Args:
+        path: Path to file
+        check_bytes: Number of bytes to check (default 8KB)
+
+    Returns:
+        Tuple of (is_binary, binary_hint)
+        - is_binary: True if file contains null bytes
+        - binary_hint: Optional hint like "image", "executable", or None
+    """
+    try:
+        with open(path, "rb") as f:
+            chunk = f.read(check_bytes)
+
+        # Check for null bytes
+        if b"\x00" in chunk:
+            hint = _get_binary_hint(path)
+            return True, hint
+
+        return False, None
+    except Exception:
+        return False, None
+
+
+def _get_binary_hint(path: str) -> str | None:
+    """Get a hint about binary file type based on extension."""
+    ext = Path(path).suffix.lower()
+
+    image_exts = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".webp", ".svg"}
+    executable_exts = {".exe", ".dll", ".so", ".dylib", ".bin", ".o", ".pyc"}
+    compressed_exts = {".zip", ".tar", ".gz", ".bz2", ".7z", ".rar", ".xz"}
+
+    if ext in image_exts:
+        return "image"
+    elif ext in executable_exts:
+        return "executable"
+    elif ext in compressed_exts:
+        return "compressed"
+
+    return None
+
+
+def get_long_line_stats(lines: list[str], threshold: int = 1000) -> dict:
+    """Get statistics about long lines in file.
+
+    Args:
+        lines: List of file lines
+        threshold: Character count to consider "long"
+
+    Returns:
+        Dict with has_long_lines, count, max_length, threshold
+    """
+    long_line_lengths = [len(line) for line in lines if len(line) > threshold]
+
+    return {
+        "has_long_lines": len(long_line_lengths) > 0,
+        "count": len(long_line_lengths),
+        "max_length": max(long_line_lengths) if long_line_lengths else 0,
+        "threshold": threshold,
+    }
+
+
 def choose_file_strategy(file_size: int) -> str:
     """Determine the best file access strategy based on size."""
     if file_size < config.memory_threshold:

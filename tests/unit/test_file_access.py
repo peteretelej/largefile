@@ -12,6 +12,8 @@ from src.file_access import (
     choose_file_strategy,
     detect_file_encoding,
     get_file_info,
+    get_long_line_stats,
+    is_binary_file,
     normalize_path,
     read_file_content,
     read_tail,
@@ -365,3 +367,164 @@ class TestUtils:
         """Formats gigabytes correctly."""
         result = format_file_size(5_000_000_000)
         assert "GB" in result
+
+
+class TestBinaryDetection:
+    """Tests for binary file detection functions."""
+
+    def test_is_binary_file_text_file(self):
+        """Text files are not detected as binary."""
+        test_content = "Hello, this is a text file.\nWith multiple lines.\n"
+
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as f:
+            f.write(test_content)
+            temp_path = f.name
+
+        try:
+            is_binary, hint = is_binary_file(temp_path)
+            assert is_binary is False
+            assert hint is None
+        finally:
+            Path(temp_path).unlink()
+
+    def test_is_binary_file_with_null_bytes(self):
+        """Files with null bytes are detected as binary."""
+        test_content = b"Hello\x00World\x00Binary"
+
+        with tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".bin") as f:
+            f.write(test_content)
+            temp_path = f.name
+
+        try:
+            is_binary, hint = is_binary_file(temp_path)
+            assert is_binary is True
+            assert hint == "executable"  # .bin extension
+        finally:
+            Path(temp_path).unlink()
+
+    def test_is_binary_file_image_hint(self):
+        """Image files get 'image' hint."""
+        test_content = b"\x89PNG\r\n\x1a\n\x00\x00\x00"  # PNG magic bytes + null
+
+        with tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".png") as f:
+            f.write(test_content)
+            temp_path = f.name
+
+        try:
+            is_binary, hint = is_binary_file(temp_path)
+            assert is_binary is True
+            assert hint == "image"
+        finally:
+            Path(temp_path).unlink()
+
+    def test_is_binary_file_compressed_hint(self):
+        """Compressed files get 'compressed' hint."""
+        test_content = b"PK\x03\x04\x00\x00"  # ZIP magic bytes + null
+
+        with tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".zip") as f:
+            f.write(test_content)
+            temp_path = f.name
+
+        try:
+            is_binary, hint = is_binary_file(temp_path)
+            assert is_binary is True
+            assert hint == "compressed"
+        finally:
+            Path(temp_path).unlink()
+
+    def test_is_binary_file_unknown_extension(self):
+        """Binary files with unknown extension get None hint."""
+        test_content = b"Some\x00Binary\x00Content"
+
+        with tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".xyz") as f:
+            f.write(test_content)
+            temp_path = f.name
+
+        try:
+            is_binary, hint = is_binary_file(temp_path)
+            assert is_binary is True
+            assert hint is None  # Unknown extension
+        finally:
+            Path(temp_path).unlink()
+
+    def test_is_binary_file_nonexistent_file(self):
+        """Non-existent files return False with no hint."""
+        is_binary, hint = is_binary_file("/nonexistent/file.txt")
+        assert is_binary is False
+        assert hint is None
+
+    def test_is_binary_file_empty_file(self):
+        """Empty files are not detected as binary."""
+        with tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".txt") as f:
+            temp_path = f.name
+
+        try:
+            is_binary, hint = is_binary_file(temp_path)
+            assert is_binary is False
+            assert hint is None
+        finally:
+            Path(temp_path).unlink()
+
+
+class TestLongLineStats:
+    """Tests for long line statistics function."""
+
+    def test_get_long_line_stats_no_long_lines(self):
+        """Files with no long lines return appropriate stats."""
+        lines = ["short line\n", "another short line\n", "third line\n"]
+        stats = get_long_line_stats(lines, threshold=100)
+
+        assert stats["has_long_lines"] is False
+        assert stats["count"] == 0
+        assert stats["max_length"] == 0
+        assert stats["threshold"] == 100
+
+    def test_get_long_line_stats_with_long_lines(self):
+        """Files with long lines return appropriate stats."""
+        lines = [
+            "short\n",
+            "x" * 150 + "\n",  # 151 chars (150 + newline)
+            "another short\n",
+            "y" * 200 + "\n",  # 201 chars
+        ]
+        stats = get_long_line_stats(lines, threshold=100)
+
+        assert stats["has_long_lines"] is True
+        assert stats["count"] == 2
+        assert stats["max_length"] == 201  # Longest line
+        assert stats["threshold"] == 100
+
+    def test_get_long_line_stats_boundary(self):
+        """Lines exactly at threshold are not long."""
+        lines = ["x" * 100 + "\n"]  # Exactly 101 chars
+        stats = get_long_line_stats(lines, threshold=100)
+
+        # Line is 101 chars (100 x's + newline), which is > 100, so it's long
+        assert stats["has_long_lines"] is True
+        assert stats["count"] == 1
+
+        # Now test exactly at threshold
+        lines = ["x" * 99 + "\n"]  # Exactly 100 chars
+        stats = get_long_line_stats(lines, threshold=100)
+
+        assert stats["has_long_lines"] is False
+        assert stats["count"] == 0
+
+    def test_get_long_line_stats_empty_list(self):
+        """Empty line list returns appropriate stats."""
+        stats = get_long_line_stats([], threshold=100)
+
+        assert stats["has_long_lines"] is False
+        assert stats["count"] == 0
+        assert stats["max_length"] == 0
+        assert stats["threshold"] == 100
+
+    def test_get_long_line_stats_custom_threshold(self):
+        """Custom threshold is respected."""
+        lines = ["x" * 50 + "\n", "y" * 60 + "\n"]
+        stats = get_long_line_stats(lines, threshold=55)
+
+        assert stats["has_long_lines"] is True
+        assert stats["count"] == 1  # Only 60-char line is over 55
+        assert stats["max_length"] == 61
+        assert stats["threshold"] == 55

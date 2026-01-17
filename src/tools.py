@@ -5,13 +5,22 @@ from pathlib import Path
 from typing import Any
 
 from .config import config
-from .data_models import BackupInfo, Change, ChangeResult, FileOverview, SearchResult
+from .data_models import (
+    BackupInfo,
+    Change,
+    ChangeResult,
+    FileOverview,
+    LongLineStats,
+    SearchResult,
+)
 from .editor import atomic_edit_file, batch_edit_content
 from .exceptions import EditError, FileAccessError, SearchError, TreeSitterError
 from .file_access import (
     create_backup,
     detect_file_encoding,
     get_file_info,
+    get_long_line_stats,
+    is_binary_file,
     list_backups,
     normalize_path,
     read_file_content,
@@ -68,7 +77,7 @@ def get_overview(absolute_file_path: str) -> dict:
     """Get file structure with basic analysis using auto-detected encoding.
 
     Provides file metadata, line count, and basic structure analysis.
-    Detects long lines for truncation and returns search hints for efficient
+    Detects binary files and long lines, returns search hints for efficient
     exploration.
 
     CRITICAL: You must use an absolute file path - relative paths will fail.
@@ -78,16 +87,62 @@ def get_overview(absolute_file_path: str) -> dict:
     - absolute_file_path: Absolute path to the file
 
     Returns:
-    - FileOverview with line count, file size, detected encoding, and search hints
+    - FileOverview with line count, file size, detected encoding, binary detection,
+      long line statistics, and search hints
     """
     canonical_path = normalize_path(absolute_file_path)
     file_info = get_file_info(canonical_path)
+
+    # Check for binary file first
+    is_binary, binary_hint = is_binary_file(canonical_path)
+
+    if is_binary:
+        # Return early for binary files
+        long_lines_stats = LongLineStats(
+            has_long_lines=False,
+            count=0,
+            max_length=0,
+            threshold=config.max_line_length,
+        )
+        overview = FileOverview(
+            line_count=0,
+            file_size=file_info["size"],
+            encoding=None,
+            long_lines=long_lines_stats,
+            is_binary=True,
+            binary_hint=binary_hint,
+            outline=[],
+            search_hints=[],
+        )
+        return {
+            "line_count": overview.line_count,
+            "file_size": overview.file_size,
+            "encoding": overview.encoding,
+            "is_binary": overview.is_binary,
+            "binary_hint": overview.binary_hint,
+            "long_lines": {
+                "has_long_lines": overview.long_lines.has_long_lines,
+                "count": overview.long_lines.count,
+                "max_length": overview.long_lines.max_length,
+                "threshold": overview.long_lines.threshold,
+            },
+            "outline": [],
+            "search_hints": [],
+            "warning": "Binary file detected. Text operations may not work correctly.",
+        }
 
     lines = read_file_lines(canonical_path)
     content = read_file_content(canonical_path)
     detected_encoding = detect_file_encoding(canonical_path)
 
-    has_long_lines = any(len(line) > config.max_line_length for line in lines)
+    # Get long line stats
+    long_line_stats_dict = get_long_line_stats(lines, config.max_line_length)
+    long_lines_stats = LongLineStats(
+        has_long_lines=long_line_stats_dict["has_long_lines"],
+        count=long_line_stats_dict["count"],
+        max_length=long_line_stats_dict["max_length"],
+        threshold=long_line_stats_dict["threshold"],
+    )
 
     # Use tree-sitter for outline generation if available
     try:
@@ -113,7 +168,9 @@ def get_overview(absolute_file_path: str) -> dict:
         line_count=len(lines),
         file_size=file_info["size"],
         encoding=detected_encoding,
-        has_long_lines=has_long_lines,
+        long_lines=long_lines_stats,
+        is_binary=False,
+        binary_hint=None,
         outline=outline,
         search_hints=search_hints,
     )
@@ -122,7 +179,14 @@ def get_overview(absolute_file_path: str) -> dict:
         "line_count": overview.line_count,
         "file_size": overview.file_size,
         "encoding": overview.encoding,
-        "has_long_lines": overview.has_long_lines,
+        "is_binary": overview.is_binary,
+        "binary_hint": overview.binary_hint,
+        "long_lines": {
+            "has_long_lines": overview.long_lines.has_long_lines,
+            "count": overview.long_lines.count,
+            "max_length": overview.long_lines.max_length,
+            "threshold": overview.long_lines.threshold,
+        },
         "outline": [
             {
                 "name": item.name,
