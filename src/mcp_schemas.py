@@ -28,7 +28,7 @@ def get_tool_schemas() -> list[types.Tool]:
             description=(
                 "Get file structure, size, and semantic outline for large files (code, logs, data). "
                 "Use FIRST when working with any file over 1000 lines or when you need to understand file structure. "
-                "Returns: line count, byte size, binary detection, section headings, and suggested search patterns. "
+                "Returns: line count, byte size, binary detection, long line stats, section headings, and suggested search patterns. "
                 "For code files, uses Tree-sitter to extract functions, classes, and structure. "
                 "Does NOT return file content - use read_content or search_content for that."
             ),
@@ -51,8 +51,7 @@ def get_tool_schemas() -> list[types.Tool]:
                 "Use when finding functions, classes, errors, log entries, or counting occurrences. "
                 "Supports: fuzzy matching (handles typos/whitespace), regex patterns, case-insensitive search, "
                 "inverted matching (like grep -v), and count-only mode. "
-                "Returns ranked matches with line numbers and surrounding context. "
-                "For log files, combine with read_content tail mode to search recent entries."
+                "Returns ranked matches with line numbers and context (lines truncated to 500 chars)."
             ),
             inputSchema={
                 "type": "object",
@@ -129,12 +128,12 @@ def get_tool_schemas() -> list[types.Tool]:
                     },
                     "limit": {
                         "type": "integer",
-                        "description": "Maximum lines to return. For tail/head, number of lines from end/start.",
+                        "description": "Lines to return (default 100). Reduce for files with long lines (check get_overview).",
                         "default": 100,
                     },
                     "pattern": {
                         "type": "string",
-                        "description": "Search pattern to locate content. Reads around the first match.",
+                        "description": "Pattern to position read (finds match, then reads around it). Overrides offset.",
                     },
                     "mode": {
                         "type": "string",
@@ -153,9 +152,9 @@ def get_tool_schemas() -> list[types.Tool]:
                 "Edit large files using search/replace with fuzzy matching. "
                 "Use instead of line-based editing to avoid LLM line number errors. "
                 "Fuzzy matching handles whitespace and formatting differences automatically. "
-                "Always use preview=true first to verify matches before applying. "
+                "Preview mode (default) shows diff without applying. "
                 "Creates automatic backup before changes - use revert_edit to undo. "
-                "Batch mode applies multiple changes atomically. "
+                "Use changes array for edits (preferred over search_text/replace_text). "
                 "Does NOT support regex in replacement - patterns must be literal text (use fuzzy=true for flexibility)."
             ),
             inputSchema={
@@ -175,7 +174,7 @@ def get_tool_schemas() -> list[types.Tool]:
                     },
                     "changes": {
                         "type": "array",
-                        "description": "Array of changes for batch editing. Each: {search, replace, fuzzy?}",
+                        "description": "Preferred: array of {search, replace, fuzzy?} objects. Applied in order.",
                         "items": {
                             "type": "object",
                             "properties": {
@@ -229,7 +228,7 @@ def get_tool_schemas() -> list[types.Tool]:
                     },
                     "backup_id": {
                         "type": "string",
-                        "description": "Backup timestamp ID (e.g., '20240115_143022'). Omit for most recent.",
+                        "description": "Backup ID from response. Omit to use most recent.",
                     },
                 },
                 "required": ["absolute_file_path"],
