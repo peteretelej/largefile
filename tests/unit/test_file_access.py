@@ -396,8 +396,10 @@ class TestBinaryDetection:
             Path(temp_path).unlink()
 
     def test_is_binary_file_with_null_bytes(self):
-        """Files with null bytes are detected as binary."""
-        test_content = b"Hello\x00World\x00Binary"
+        """Files with random binary data are detected as binary."""
+        # Use truly random binary data that chardet won't recognize as text
+        # This simulates actual binary file content (not text with embedded nulls)
+        test_content = bytes(range(256)) + b"\x00" * 50 + bytes(range(255, -1, -1))
 
         with tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".bin") as f:
             f.write(test_content)
@@ -442,7 +444,8 @@ class TestBinaryDetection:
 
     def test_is_binary_file_unknown_extension(self):
         """Binary files with unknown extension get None hint."""
-        test_content = b"Some\x00Binary\x00Content"
+        # Use truly random binary data that chardet won't recognize as text
+        test_content = bytes(range(256)) + b"\x00" * 50 + bytes(range(255, -1, -1))
 
         with tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".xyz") as f:
             f.write(test_content)
@@ -766,3 +769,345 @@ class TestFileReadErrors:
             with pytest.raises(FileAccessError) as exc_info:
                 read_file_lines(tmpdir)
             assert "Cannot" in str(exc_info.value)
+
+
+class TestUTF16BinaryDetection:
+    """Tests for UTF-16 and other multi-byte encoding detection.
+
+    These tests verify that text files using encodings with null bytes
+    (UTF-16, UTF-32) are correctly identified as text, not binary.
+    """
+
+    def test_utf16_le_with_bom_not_binary(self):
+        """UTF-16 LE with BOM should be detected as text, not binary."""
+        content = "Hello World - Windows log file\r\nSecond line\r\n"
+        # UTF-16 LE BOM is FF FE
+        encoded = b"\xff\xfe" + content.encode("utf-16-le")
+
+        with tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".txt") as f:
+            f.write(encoded)
+            temp_path = f.name
+
+        try:
+            is_binary, hint = is_binary_file(temp_path)
+            assert is_binary is False, (
+                "UTF-16 LE with BOM should not be detected as binary"
+            )
+            assert hint is None
+        finally:
+            Path(temp_path).unlink()
+
+    def test_utf16_be_with_bom_not_binary(self):
+        """UTF-16 BE with BOM should be detected as text, not binary."""
+        content = "Hello World - Big endian text\nSecond line\n"
+        # UTF-16 BE BOM is FE FF
+        encoded = b"\xfe\xff" + content.encode("utf-16-be")
+
+        with tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".txt") as f:
+            f.write(encoded)
+            temp_path = f.name
+
+        try:
+            is_binary, hint = is_binary_file(temp_path)
+            assert is_binary is False, (
+                "UTF-16 BE with BOM should not be detected as binary"
+            )
+            assert hint is None
+        finally:
+            Path(temp_path).unlink()
+
+    def test_utf32_le_with_bom_not_binary(self):
+        """UTF-32 LE with BOM should be detected as text, not binary."""
+        content = "Hello UTF-32"
+        # UTF-32 LE BOM is FF FE 00 00
+        encoded = b"\xff\xfe\x00\x00" + content.encode("utf-32-le")
+
+        with tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".txt") as f:
+            f.write(encoded)
+            temp_path = f.name
+
+        try:
+            is_binary, hint = is_binary_file(temp_path)
+            assert is_binary is False, (
+                "UTF-32 LE with BOM should not be detected as binary"
+            )
+            assert hint is None
+        finally:
+            Path(temp_path).unlink()
+
+    def test_utf32_be_with_bom_not_binary(self):
+        """UTF-32 BE with BOM should be detected as text, not binary."""
+        content = "Hello UTF-32 BE"
+        # UTF-32 BE BOM is 00 00 FE FF
+        encoded = b"\x00\x00\xfe\xff" + content.encode("utf-32-be")
+
+        with tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".txt") as f:
+            f.write(encoded)
+            temp_path = f.name
+
+        try:
+            is_binary, hint = is_binary_file(temp_path)
+            assert is_binary is False, (
+                "UTF-32 BE with BOM should not be detected as binary"
+            )
+            assert hint is None
+        finally:
+            Path(temp_path).unlink()
+
+    def test_utf8_with_bom_not_binary(self):
+        """UTF-8 with BOM should be detected as text, not binary."""
+        content = "Hello UTF-8 with BOM"
+        # UTF-8 BOM is EF BB BF
+        encoded = b"\xef\xbb\xbf" + content.encode("utf-8")
+
+        with tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".txt") as f:
+            f.write(encoded)
+            temp_path = f.name
+
+        try:
+            is_binary, hint = is_binary_file(temp_path)
+            assert is_binary is False, "UTF-8 with BOM should not be detected as binary"
+            assert hint is None
+        finally:
+            Path(temp_path).unlink()
+
+    def test_utf16_without_bom_detected_by_chardet(self):
+        """UTF-16 without BOM should be detected as text via chardet."""
+        # Longer content helps chardet make a confident detection
+        content = "This is a longer text file without BOM. " * 10
+        content += "\nMultiple lines help detection.\n" * 5
+        # Encode as UTF-16 LE without adding BOM
+        encoded = content.encode("utf-16-le")
+
+        with tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".txt") as f:
+            f.write(encoded)
+            temp_path = f.name
+
+        try:
+            is_binary, hint = is_binary_file(temp_path)
+            # chardet should detect this as UTF-16
+            assert is_binary is False, (
+                "UTF-16 without BOM should be detected as text via chardet"
+            )
+            assert hint is None
+        finally:
+            Path(temp_path).unlink()
+
+    def test_windows_powershell_output_format(self):
+        """Simulated Windows PowerShell output (UTF-16 LE with BOM and CRLF)."""
+        # PowerShell typically outputs UTF-16 LE with BOM and Windows line endings
+        content = "Directory: C:\\Users\\Admin\\Documents\r\n\r\n"
+        content += "Mode                 LastWriteTime         Length Name\r\n"
+        content += "----                 -------------         ------ ----\r\n"
+        content += "-a----        2024-01-15   9:30 AM           1234 file.txt\r\n"
+
+        encoded = b"\xff\xfe" + content.encode("utf-16-le")
+
+        with tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".txt") as f:
+            f.write(encoded)
+            temp_path = f.name
+
+        try:
+            is_binary, hint = is_binary_file(temp_path)
+            assert is_binary is False, "PowerShell UTF-16 output should not be binary"
+        finally:
+            Path(temp_path).unlink()
+
+    def test_windows_event_log_format(self):
+        """Simulated Windows Event Log export (UTF-16 LE with BOM)."""
+        content = '<?xml version="1.0" encoding="UTF-16"?>\r\n'
+        content += "<Events>\r\n"
+        content += (
+            '  <Event xmlns="http://schemas.microsoft.com/win/2004/08/events">\r\n'
+        )
+        content += "    <System><EventID>1000</EventID></System>\r\n"
+        content += "    <EventData><Data>Application Error</Data></EventData>\r\n"
+        content += "  </Event>\r\n"
+        content += "</Events>\r\n"
+
+        encoded = b"\xff\xfe" + content.encode("utf-16-le")
+
+        with tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".xml") as f:
+            f.write(encoded)
+            temp_path = f.name
+
+        try:
+            is_binary, hint = is_binary_file(temp_path)
+            assert is_binary is False, "Windows Event Log XML should not be binary"
+        finally:
+            Path(temp_path).unlink()
+
+
+class TestBinarySignatureDetection:
+    """Tests for binary file signature (magic byte) detection."""
+
+    def test_png_signature_detection(self):
+        """PNG files are detected as binary via signature."""
+        # PNG signature: 89 50 4E 47 0D 0A 1A 0A
+        png_header = b"\x89PNG\r\n\x1a\n"
+        # Add some fake image data
+        fake_data = b"\x00\x00\x00\rIHDR" + b"\x00" * 100
+
+        with tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".png") as f:
+            f.write(png_header + fake_data)
+            temp_path = f.name
+
+        try:
+            is_binary, hint = is_binary_file(temp_path)
+            assert is_binary is True
+            assert hint == "image"
+        finally:
+            Path(temp_path).unlink()
+
+    def test_jpeg_signature_detection(self):
+        """JPEG files are detected as binary via signature."""
+        # JPEG signature: FF D8 FF
+        jpeg_header = b"\xff\xd8\xff\xe0\x00\x10JFIF"
+        fake_data = b"\x00" * 100
+
+        with tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".jpg") as f:
+            f.write(jpeg_header + fake_data)
+            temp_path = f.name
+
+        try:
+            is_binary, hint = is_binary_file(temp_path)
+            assert is_binary is True
+            assert hint == "image"
+        finally:
+            Path(temp_path).unlink()
+
+    def test_gif_signature_detection(self):
+        """GIF files are detected as binary via signature."""
+        # GIF89a signature
+        gif_header = b"GIF89a"
+        fake_data = b"\x00" * 100
+
+        with tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".gif") as f:
+            f.write(gif_header + fake_data)
+            temp_path = f.name
+
+        try:
+            is_binary, hint = is_binary_file(temp_path)
+            assert is_binary is True
+            assert hint == "image"
+        finally:
+            Path(temp_path).unlink()
+
+    def test_zip_signature_detection(self):
+        """ZIP files are detected as binary via signature."""
+        # ZIP signature: PK\x03\x04
+        zip_header = b"PK\x03\x04"
+        fake_data = b"\x00" * 100
+
+        with tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".zip") as f:
+            f.write(zip_header + fake_data)
+            temp_path = f.name
+
+        try:
+            is_binary, hint = is_binary_file(temp_path)
+            assert is_binary is True
+            assert hint == "compressed"
+        finally:
+            Path(temp_path).unlink()
+
+    def test_gzip_signature_detection(self):
+        """Gzip files are detected as binary via signature."""
+        # Gzip signature: 1F 8B
+        gzip_header = b"\x1f\x8b\x08"
+        fake_data = b"\x00" * 100
+
+        with tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".gz") as f:
+            f.write(gzip_header + fake_data)
+            temp_path = f.name
+
+        try:
+            is_binary, hint = is_binary_file(temp_path)
+            assert is_binary is True
+            assert hint == "compressed"
+        finally:
+            Path(temp_path).unlink()
+
+    def test_pdf_signature_detection(self):
+        """PDF files are detected as binary via signature."""
+        # PDF signature: %PDF
+        pdf_content = b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n"
+        # Note: PDF header doesn't have null bytes, but we detect via signature
+
+        with tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".pdf") as f:
+            f.write(pdf_content)
+            temp_path = f.name
+
+        try:
+            is_binary, hint = is_binary_file(temp_path)
+            assert is_binary is True
+            assert hint == "document"
+        finally:
+            Path(temp_path).unlink()
+
+    def test_elf_signature_detection(self):
+        """ELF executables are detected as binary via signature."""
+        # ELF signature: 7F 45 4C 46 (0x7F + "ELF")
+        elf_header = b"\x7fELF\x02\x01\x01"
+        fake_data = b"\x00" * 100
+
+        with tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".so") as f:
+            f.write(elf_header + fake_data)
+            temp_path = f.name
+
+        try:
+            is_binary, hint = is_binary_file(temp_path)
+            assert is_binary is True
+            assert hint == "executable"
+        finally:
+            Path(temp_path).unlink()
+
+    def test_sqlite_signature_detection(self):
+        """SQLite databases are detected as binary via signature."""
+        # SQLite signature: "SQLite format 3\x00"
+        sqlite_header = b"SQLite format 3\x00"
+        fake_data = b"\x00" * 100
+
+        with tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".db") as f:
+            f.write(sqlite_header + fake_data)
+            temp_path = f.name
+
+        try:
+            is_binary, hint = is_binary_file(temp_path)
+            assert is_binary is True
+            assert hint == "database"
+        finally:
+            Path(temp_path).unlink()
+
+    def test_mp3_id3_signature_detection(self):
+        """MP3 with ID3 tag is detected as binary via signature."""
+        # ID3v2 signature
+        id3_header = b"ID3\x04\x00\x00"
+        fake_data = b"\x00" * 100
+
+        with tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".mp3") as f:
+            f.write(id3_header + fake_data)
+            temp_path = f.name
+
+        try:
+            is_binary, hint = is_binary_file(temp_path)
+            assert is_binary is True
+            assert hint == "media"
+        finally:
+            Path(temp_path).unlink()
+
+    def test_signature_takes_precedence_over_extension(self):
+        """Binary signature detection takes precedence over file extension."""
+        # PNG data with .txt extension - should still be detected as binary
+        png_header = b"\x89PNG\r\n\x1a\n"
+        fake_data = b"\x00" * 100
+
+        with tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".txt") as f:
+            f.write(png_header + fake_data)
+            temp_path = f.name
+
+        try:
+            is_binary, hint = is_binary_file(temp_path)
+            assert is_binary is True
+            assert hint == "image"  # Hint from signature, not extension
+        finally:
+            Path(temp_path).unlink()

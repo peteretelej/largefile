@@ -18,8 +18,62 @@ def normalize_path(file_path: str) -> str:
     return os.path.abspath(expanded)
 
 
+# Byte Order Marks for text encodings that may contain null bytes
+# Check longer BOMs first (UTF-32 before UTF-16 due to prefix overlap)
+_TEXT_ENCODING_BOMS: dict[bytes, str] = {
+    b"\xff\xfe\x00\x00": "utf-32-le",
+    b"\x00\x00\xfe\xff": "utf-32-be",
+    b"\xff\xfe": "utf-16-le",
+    b"\xfe\xff": "utf-16-be",
+    b"\xef\xbb\xbf": "utf-8-sig",
+}
+
+# Known binary file signatures (magic bytes)
+_BINARY_SIGNATURES: dict[bytes, str] = {
+    # Images
+    b"\x89PNG\r\n\x1a\n": "image",
+    b"\xff\xd8\xff": "image",  # JPEG
+    b"GIF87a": "image",
+    b"GIF89a": "image",
+    b"RIFF": "image",  # WebP (also other formats)
+    b"BM": "image",  # BMP
+    # Executables
+    b"\x7fELF": "executable",  # Linux/Unix
+    b"MZ": "executable",  # Windows PE
+    b"\xfe\xed\xfa\xce": "executable",  # Mach-O 32-bit
+    b"\xfe\xed\xfa\xcf": "executable",  # Mach-O 64-bit
+    b"\xcf\xfa\xed\xfe": "executable",  # Mach-O 64-bit (reversed)
+    b"\xca\xfe\xba\xbe": "executable",  # Mach-O universal
+    # Archives
+    b"PK\x03\x04": "compressed",  # ZIP
+    b"PK\x05\x06": "compressed",  # ZIP (empty)
+    b"\x1f\x8b": "compressed",  # gzip
+    b"BZh": "compressed",  # bzip2
+    b"\xfd7zXZ\x00": "compressed",  # xz
+    b"Rar!\x1a\x07": "compressed",  # RAR
+    b"7z\xbc\xaf\x27\x1c": "compressed",  # 7z
+    # Documents
+    b"%PDF": "document",
+    b"\xd0\xcf\x11\xe0": "document",  # MS Office OLE
+    # Databases
+    b"SQLite format 3": "database",
+    # Media
+    b"ID3": "media",  # MP3 with ID3v2
+    b"\xff\xfb": "media",  # MP3 frame
+    b"\xff\xfa": "media",  # MP3 frame
+    b"OggS": "media",  # Ogg
+    b"fLaC": "media",  # FLAC
+}
+
+
 def is_binary_file(path: str, check_bytes: int = 8192) -> tuple[bool, str | None]:
-    """Check if file appears to be binary.
+    """Check if file appears to be binary with encoding awareness.
+
+    Detection order:
+    1. Check for known binary file signatures (magic bytes)
+    2. Check for text encoding BOMs (UTF-16, UTF-32, UTF-8-BOM)
+    3. Use chardet for encoding detection on files with null bytes
+    4. Fall back to null byte heuristic only if encoding unknown
 
     Args:
         path: Path to file
@@ -27,19 +81,58 @@ def is_binary_file(path: str, check_bytes: int = 8192) -> tuple[bool, str | None
 
     Returns:
         Tuple of (is_binary, binary_hint)
-        - is_binary: True if file contains null bytes
+        - is_binary: True if file is binary
         - binary_hint: Optional hint like "image", "executable", or None
     """
     try:
         with open(path, "rb") as f:
             chunk = f.read(check_bytes)
 
-        # Check for null bytes
-        if b"\x00" in chunk:
-            hint = _get_binary_hint(path)
-            return True, hint
+        if not chunk:
+            return False, None  # Empty file is not binary
 
-        return False, None
+        # Step 1: Check for known binary file signatures
+        for sig, hint in _BINARY_SIGNATURES.items():
+            if chunk.startswith(sig):
+                return True, hint
+
+        # Step 2: Check for text encoding BOMs (sorted by length, longest first)
+        for bom in sorted(_TEXT_ENCODING_BOMS.keys(), key=len, reverse=True):
+            if chunk.startswith(bom):
+                return False, None  # Known text encoding
+
+        # Step 3: No null bytes = definitely text
+        if b"\x00" not in chunk:
+            return False, None
+
+        # Step 4: Has null bytes but no BOM - try chardet
+        # This catches UTF-16 files without BOM
+        result = chardet.detect(chunk)
+        detected_encoding = result.get("encoding") if result else None
+        if detected_encoding:
+            encoding_lower = detected_encoding.lower()
+
+            # Known text encodings that contain null bytes
+            text_encodings_with_nulls = [
+                "utf-16",
+                "utf-32",
+                "ucs-2",
+                "ucs-4",
+                "utf_16",
+                "utf_32",
+            ]
+
+            for enc in text_encodings_with_nulls:
+                if enc in encoding_lower:
+                    return False, None  # Text encoding detected
+
+            # High confidence in any encoding suggests text
+            if result and result.get("confidence", 0) >= 0.8:
+                return False, None
+
+        # Step 5: Fall back to extension-based hint
+        return True, _get_binary_hint(path)
+
     except Exception:
         return False, None
 
@@ -48,9 +141,54 @@ def _get_binary_hint(path: str) -> str | None:
     """Get a hint about binary file type based on extension."""
     ext = Path(path).suffix.lower()
 
-    image_exts = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".webp", ".svg"}
-    executable_exts = {".exe", ".dll", ".so", ".dylib", ".bin", ".o", ".pyc"}
-    compressed_exts = {".zip", ".tar", ".gz", ".bz2", ".7z", ".rar", ".xz"}
+    image_exts = {
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".bmp",
+        ".ico",
+        ".webp",
+        ".svg",
+        ".tiff",
+        ".tif",
+    }
+    executable_exts = {
+        ".exe",
+        ".dll",
+        ".so",
+        ".dylib",
+        ".bin",
+        ".o",
+        ".pyc",
+        ".pyd",
+        ".wasm",
+    }
+    compressed_exts = {
+        ".zip",
+        ".tar",
+        ".gz",
+        ".bz2",
+        ".7z",
+        ".rar",
+        ".xz",
+        ".zst",
+        ".lz4",
+    }
+    media_exts = {
+        ".mp3",
+        ".mp4",
+        ".wav",
+        ".flac",
+        ".ogg",
+        ".avi",
+        ".mkv",
+        ".webm",
+        ".m4a",
+        ".aac",
+    }
+    document_exts = {".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx"}
+    database_exts = {".db", ".sqlite", ".sqlite3"}
 
     if ext in image_exts:
         return "image"
@@ -58,6 +196,12 @@ def _get_binary_hint(path: str) -> str | None:
         return "executable"
     elif ext in compressed_exts:
         return "compressed"
+    elif ext in media_exts:
+        return "media"
+    elif ext in document_exts:
+        return "document"
+    elif ext in database_exts:
+        return "database"
 
     return None
 

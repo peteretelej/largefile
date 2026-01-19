@@ -45,7 +45,8 @@ class TestGetOverviewBinaryFile:
 
     def test_binary_file_no_encoding(self):
         """Binary files have no encoding."""
-        binary_content = b"Binary\x00content\x00here"
+        # Use truly random binary data that chardet won't recognize as text
+        binary_content = bytes(range(256)) + b"\x00" * 50 + bytes(range(255, -1, -1))
 
         with tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".bin") as f:
             f.write(binary_content)
