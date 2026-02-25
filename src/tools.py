@@ -1,6 +1,7 @@
 import os
 import shutil
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -9,6 +10,8 @@ from .data_models import (
     BackupInfo,
     Change,
     ChangeResult,
+    DirectoryEntry,
+    DirectoryListing,
     FileOverview,
     LongLineStats,
     SearchResult,
@@ -643,4 +646,178 @@ def revert_edit(
         "reverted_to": _backup_to_dict(target_backup),
         "current_saved_as": _backup_to_dict(current_backup),
         "available_backups": [_backup_to_dict(b) for b in updated_backups],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Directory listing helpers
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _Counter:
+    """Mutable counter shared across recursive _collect_entries calls."""
+
+    files: int = 0
+    dirs: int = 0
+    total: int = 0
+    truncated: bool = False
+    truncated_at: str | None = None
+
+
+def _collect_entries(
+    dir_path: str,
+    max_depth: int,
+    max_entries: int,
+    include_hidden: bool,
+    ignored_patterns: list[str],
+    counter: _Counter,
+    current_depth: int = 0,
+) -> list[DirectoryEntry]:
+    """Recursively collect directory entries up to max_depth.
+
+    Args:
+        dir_path: Absolute path to scan.
+        max_depth: Maximum recursion depth (1 = direct children only).
+        max_entries: Hard cap on total entries across all depths.
+        include_hidden: Whether to include dot-entries.
+        ignored_patterns: Directory names to skip entirely.
+        counter: Shared mutable counter for totals / truncation state.
+        current_depth: Current recursion level (starts at 0).
+
+    Returns:
+        Flat list of DirectoryEntry items for this level.
+    """
+    entries: list[DirectoryEntry] = []
+
+    try:
+        raw = sorted(
+            os.scandir(dir_path),
+            key=lambda e: (not e.is_dir(follow_symlinks=False), e.name.lower()),
+        )
+    except PermissionError:
+        return entries
+
+    for entry in raw:
+        if counter.truncated:
+            break
+        if counter.total >= max_entries:
+            counter.truncated = True
+            counter.truncated_at = entry.path
+            break
+        if not include_hidden and entry.name.startswith("."):
+            continue
+        if entry.name in ignored_patterns:
+            continue
+
+        counter.total += 1
+
+        if entry.is_dir(follow_symlinks=False):
+            counter.dirs += 1
+            try:
+                child_count = sum(1 for _ in os.scandir(entry.path))
+            except PermissionError:
+                child_count = 0
+            entries.append(
+                DirectoryEntry(
+                    name=entry.name,
+                    type="dir",
+                    size_bytes=0,
+                    child_count=child_count,
+                )
+            )
+            if current_depth + 1 < max_depth:
+                child_entries = _collect_entries(
+                    entry.path,
+                    max_depth,
+                    max_entries,
+                    include_hidden,
+                    ignored_patterns,
+                    counter,
+                    current_depth + 1,
+                )
+                entries.extend(child_entries)
+        else:
+            counter.files += 1
+            try:
+                size = entry.stat().st_size
+            except OSError:
+                size = 0
+            entries.append(
+                DirectoryEntry(
+                    name=entry.name,
+                    type="file",
+                    size_bytes=size,
+                    child_count=None,
+                )
+            )
+
+    return entries
+
+
+@handle_tool_errors
+def list_directory(
+    absolute_dir_path: str,
+    max_depth: int = 1,
+    max_entries: int | None = None,
+    include_hidden: bool = False,
+) -> dict:
+    """List directory contents with optional recursive depth.
+
+    Returns name, type, size, and child count for each entry.
+    Directories are listed before files. Ignores __pycache__, node_modules,
+    and .git by default (configurable via LARGEFILE_IGNORED_DIR_PATTERNS).
+
+    CRITICAL: You must use an absolute directory path.
+
+    Args:
+        absolute_dir_path: Absolute path to the directory to list.
+        max_depth: How many levels deep to recurse (default: 1 = direct children).
+        max_entries: Maximum total entries to return (default: server config, 200).
+        include_hidden: If True, include entries starting with '.' (default: False).
+
+    Returns:
+        Dict with entries list, total_files, total_dirs, truncated, truncated_at.
+    """
+    dir_path = normalize_path(absolute_dir_path)
+
+    if not os.path.isdir(dir_path):
+        raise FileAccessError(f"Not a directory or does not exist: {dir_path}")
+
+    effective_max = max_entries if max_entries is not None else config.max_dir_entries
+    counter = _Counter()
+
+    entries = _collect_entries(
+        dir_path,
+        max_depth,
+        effective_max,
+        include_hidden,
+        config.ignored_dir_patterns,
+        counter,
+    )
+
+    listing = DirectoryListing(
+        path=dir_path,
+        entries=entries,
+        total_files=counter.files,
+        total_dirs=counter.dirs,
+        truncated=counter.truncated,
+        truncated_at=counter.truncated_at,
+    )
+
+    return {
+        "path": listing.path,
+        "entries": [
+            {
+                "name": e.name,
+                "type": e.type,
+                "size_bytes": e.size_bytes,
+                "child_count": e.child_count,
+            }
+            for e in listing.entries
+        ],
+        "total_files": listing.total_files,
+        "total_dirs": listing.total_dirs,
+        "truncated": listing.truncated,
+        "truncated_at": listing.truncated_at,
     }

@@ -115,3 +115,25 @@ class RevertResult:
     current_saved_as: BackupInfo | None  # Pre-revert state preserved
     available_backups: list[BackupInfo]
     error: str | None = None
+
+
+@dataclass
+class DirectoryEntry:
+    """A single entry (file or directory) in a directory listing."""
+
+    name: str
+    type: str  # "file" | "dir"
+    size_bytes: int
+    child_count: int | None = None  # None for files; direct child count for dirs
+
+
+@dataclass
+class DirectoryListing:
+    """Result of a directory listing operation."""
+
+    path: str
+    entries: list[DirectoryEntry]
+    total_files: int
+    total_dirs: int
+    truncated: bool
+    truncated_at: str | None = None

@@ -4,15 +4,16 @@ Detailed documentation for the Largefile MCP Server tools.
 
 ## Overview
 
-The Largefile MCP Server provides 5 tools for working with large text files:
+The Largefile MCP Server provides 6 tools for working with large text files:
 
 | Tool | Purpose |
-|------|---------|
+|------|---------||
 | **get_overview** | File structure analysis with Tree-sitter semantic outline |
 | **search_content** | Pattern search with fuzzy, regex, and invert matching |
 | **read_content** | Targeted reading by offset, pattern, tail, or head mode |
 | **edit_content** | Batch search/replace editing with automatic backups |
 | **revert_edit** | Recover from bad edits via backup restoration |
+| **list_directory** | List directory contents with recursive depth and filtering |
 
 All tools require absolute file paths and support auto-detected text encoding.
 

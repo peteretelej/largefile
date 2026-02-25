@@ -1,5 +1,5 @@
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
@@ -32,6 +32,13 @@ class Config:
         os.getenv("LARGEFILE_ENABLE_TREE_SITTER", "true").lower() == "true"
     )
     tree_sitter_timeout: int = int(os.getenv("LARGEFILE_TREE_SITTER_TIMEOUT", "5"))
+
+    max_dir_entries: int = int(os.getenv("LARGEFILE_MAX_DIR_ENTRIES", "200"))
+    ignored_dir_patterns: list[str] = field(
+        default_factory=lambda: os.getenv(
+            "LARGEFILE_IGNORED_DIR_PATTERNS", "__pycache__,node_modules,.git"
+        ).split(",")
+    )
 
     @property
     def memory_threshold(self) -> int:

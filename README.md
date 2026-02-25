@@ -29,13 +29,14 @@ Navigate, search, and edit large codebases, logs, and data files that exceed AI 
 
 ## Tools
 
-| Tool             | Use For                                                |
-| ---------------- | ------------------------------------------------------ |
-| `get_overview`   | File structure and semantic outline before diving in   |
-| `search_content` | Finding patterns, counting occurrences, regex matching |
-| `read_content`   | Reading specific sections; tail/head modes for logs    |
-| `edit_content`   | Safe search/replace with automatic backups             |
-| `revert_edit`    | Recovering from bad edits                              |
+| Tool               | Use For                                                |
+| ------------------ | ------------------------------------------------------ |
+| `get_overview`     | File structure and semantic outline before diving in   |
+| `search_content`   | Finding patterns, counting occurrences, regex matching |
+| `read_content`     | Reading specific sections; tail/head modes for logs    |
+| `edit_content`     | Safe search/replace with automatic backups             |
+| `revert_edit`      | Recovering from bad edits                              |
+| `list_directory`   | Browse directory trees with recursive depth control    |
 
 ## When to Use Largefile
 
