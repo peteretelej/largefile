@@ -290,8 +290,18 @@ def get_node_context(node: Any) -> str | None:
     return None
 
 
+def _flatten_outline_items(items: list[OutlineItem]) -> list[OutlineItem]:
+    """Flatten a hierarchical outline tree into a sorted flat list."""
+    flat: list[OutlineItem] = []
+    for item in items:
+        flat.append(item)
+        if item.children:
+            flat.extend(_flatten_outline_items(item.children))
+    return flat
+
+
 def generate_outline(file_path: str, content: str) -> list[OutlineItem]:
-    """Generate hierarchical outline from AST."""
+    """Generate a flat outline of definitions from AST."""
     tree = parse_file_content(file_path, content)
 
     if not tree:
@@ -302,10 +312,11 @@ def generate_outline(file_path: str, content: str) -> list[OutlineItem]:
         outline_items: list[OutlineItem] = []
         root_node = tree.root_node
 
-        # Extract top-level definitions
+        # Extract definitions (builds tree with children)
         extract_outline_items(root_node, outline_items, 0)
 
-        return outline_items
+        # Return flat list sorted by line number
+        return _flatten_outline_items(outline_items)
 
     except Exception:
         # Fall back to simple outline on any error
@@ -320,9 +331,10 @@ def extract_outline_items(node: Any, items: list[OutlineItem], depth: int) -> No
     # Check if this node represents a definition we care about
     outline_item = create_outline_item_from_node(node, depth)
     if outline_item:
-        # Look for child definitions
+        # Look for child definitions within this node's children
         child_items: list[OutlineItem] = []
-        extract_outline_items(node, child_items, depth + 1)
+        for child in node.children:
+            extract_outline_items(child, child_items, depth + 1)
         outline_item.children = child_items
         items.append(outline_item)
         return
