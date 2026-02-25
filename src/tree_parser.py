@@ -276,6 +276,16 @@ def get_node_context(node: Any) -> str | None:
             return f"enum {name_node.text.decode('utf-8')}"
         return "enum"
 
+    elif node_type == "annotation_type_declaration":
+        name_node = None
+        for child in node.children:
+            if child.type == "identifier":
+                name_node = child
+                break
+        if name_node:
+            return f"@interface {name_node.text.decode('utf-8')}"
+        return "@interface"
+
     # Return None for nodes we don't have specific handling for
     return None
 
@@ -466,6 +476,18 @@ def create_outline_item_from_node(node: Any, depth: int) -> OutlineItem | None:
                 line_count=node.end_point[0] - node.start_point[0] + 1,
             )
 
+    elif node_type == "annotation_type_declaration":
+        name = extract_node_name(node, "identifier")
+        if name:
+            return OutlineItem(
+                name=f"@interface {name}",
+                type="annotation_type",
+                line_number=node.start_point[0] + 1,
+                end_line=node.end_point[0] + 1,
+                children=[],
+                line_count=node.end_point[0] - node.start_point[0] + 1,
+            )
+
     return None
 
 
@@ -536,6 +558,7 @@ def generate_simple_outline(file_path: str, content: str) -> list[OutlineItem]:
             ("public enum ", "enum"),
             ("enum ", "enum"),
             ("import ", "import"),
+            ("@interface ", "annotation_type"),
             ("@", "annotation"),
         ]
     else:

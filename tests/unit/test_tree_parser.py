@@ -367,6 +367,7 @@ class TestJavaSupport:
             ("method_declaration", "method "),
             ("constructor_declaration", "constructor "),
             ("enum_declaration", "enum "),
+            ("annotation_type_declaration", "@interface "),
         ],
     )
     def test_java_node_context_strings(self, node_type, expected_prefix):
@@ -384,3 +385,16 @@ class TestJavaSupport:
         assert result is not None
         assert result.startswith(expected_prefix)
         assert "MyItem" in result
+
+    def test_java_annotation_type_in_simple_outline(self):
+        """generate_simple_outline recognises @interface declarations."""
+        java_content = (
+            "import java.lang.annotation.Retention;\n"
+            "@interface Transactional {\n"
+            "    int timeout() default 0;\n"
+            "}\n"
+        )
+        outline = generate_simple_outline("Transactional.java", java_content)
+        assert isinstance(outline, list)
+        types = [item.type for item in outline]
+        assert "annotation_type" in types
