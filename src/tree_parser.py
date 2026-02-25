@@ -227,64 +227,28 @@ def get_node_context(node: Any) -> str | None:
         return "impl block"
 
     elif node_type == "interface_declaration":
-        name_node = None
-        for child in node.children:
-            if child.type in ("type_identifier", "identifier"):
-                name_node = child
-                break
-        if name_node:
-            return f"interface {name_node.text.decode('utf-8')}"
-        return "interface"
+        name = extract_node_name(node, ("type_identifier", "identifier"))
+        return f"interface {name}" if name else "interface"
 
     elif node_type == "class_declaration":
-        name_node = None
-        for child in node.children:
-            if child.type == "identifier":
-                name_node = child
-                break
-        if name_node:
-            return f"class {name_node.text.decode('utf-8')}"
-        return "class"
+        name = extract_node_name(node, "identifier")
+        return f"class {name}" if name else "class"
 
     elif node_type == "method_declaration":
-        name_node = None
-        for child in node.children:
-            if child.type == "identifier":
-                name_node = child
-                break
-        if name_node:
-            return f"method {name_node.text.decode('utf-8')}()"
-        return "method"
+        name = extract_node_name(node, "identifier")
+        return f"method {name}()" if name else "method"
 
     elif node_type == "constructor_declaration":
-        name_node = None
-        for child in node.children:
-            if child.type == "identifier":
-                name_node = child
-                break
-        if name_node:
-            return f"constructor {name_node.text.decode('utf-8')}()"
-        return "constructor"
+        name = extract_node_name(node, "identifier")
+        return f"constructor {name}()" if name else "constructor"
 
     elif node_type == "enum_declaration":
-        name_node = None
-        for child in node.children:
-            if child.type == "identifier":
-                name_node = child
-                break
-        if name_node:
-            return f"enum {name_node.text.decode('utf-8')}"
-        return "enum"
+        name = extract_node_name(node, "identifier")
+        return f"enum {name}" if name else "enum"
 
     elif node_type == "annotation_type_declaration":
-        name_node = None
-        for child in node.children:
-            if child.type == "identifier":
-                name_node = child
-                break
-        if name_node:
-            return f"@interface {name_node.text.decode('utf-8')}"
-        return "@interface"
+        name = extract_node_name(node, "identifier")
+        return f"@interface {name}" if name else "@interface"
 
     # Return None for nodes we don't have specific handling for
     return None
@@ -402,9 +366,7 @@ def create_outline_item_from_node(node: Any, depth: int) -> OutlineItem | None:
 
     # Language-specific nodes
     elif node_type in ["struct_item", "struct"]:
-        name = extract_node_name(node, "type_identifier") or extract_node_name(
-            node, "identifier"
-        )
+        name = extract_node_name(node, ("type_identifier", "identifier"))
         if name:
             return OutlineItem(
                 name=f"struct {name}",
@@ -426,9 +388,7 @@ def create_outline_item_from_node(node: Any, depth: int) -> OutlineItem | None:
         )
 
     elif node_type == "interface_declaration":
-        name = extract_node_name(node, "type_identifier") or extract_node_name(
-            node, "identifier"
-        )
+        name = extract_node_name(node, ("type_identifier", "identifier"))
         if name:
             return OutlineItem(
                 name=f"interface {name}",
@@ -503,18 +463,28 @@ def create_outline_item_from_node(node: Any, depth: int) -> OutlineItem | None:
     return None
 
 
-def extract_node_name(node: Any, name_type: str = "identifier") -> str | None:
-    """Extract the name from a node by looking for a child of the specified type."""
+def extract_node_name(
+    node: Any, allowed_types: str | tuple[str, ...] = "identifier"
+) -> str | None:
+    """Extract the name from a node by finding the first child with a matching type.
+
+    Args:
+        node: Tree-sitter AST node to search.
+        allowed_types: One type string or a tuple of type strings to match.
+
+    Returns:
+        Decoded text of the first matching child, or None if not found.
+    """
     if not node:
         return None
-
+    if isinstance(allowed_types, str):
+        allowed_types = (allowed_types,)
     for child in node.children:
-        if child.type == name_type:
+        if child.type in allowed_types:
             try:
                 return child.text.decode("utf-8")  # type: ignore
             except (UnicodeDecodeError, AttributeError):
                 return None
-
     return None
 
 

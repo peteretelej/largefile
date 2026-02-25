@@ -11,7 +11,6 @@ from .data_models import (
     ChangeResult,
     FileOverview,
     LongLineStats,
-    OutlineItem,
     SearchResult,
 )
 from .editor import batch_edit_content
@@ -37,16 +36,6 @@ from .tree_parser import (
     parse_file_content,
 )
 from .utils import truncate_line
-
-
-def _flatten_outline(items: list[OutlineItem]) -> list[OutlineItem]:
-    """Flatten a hierarchical outline tree into a sorted flat list."""
-    flat: list[OutlineItem] = []
-    for item in items:
-        flat.append(item)
-        if item.children:
-            flat.extend(_flatten_outline(item.children))
-    return flat
 
 
 def handle_tool_errors(func: Callable) -> Callable:
@@ -209,7 +198,7 @@ def get_overview(absolute_file_path: str) -> dict:
                 "end_line": item.end_line,
                 "line_count": item.line_count,
             }
-            for item in _flatten_outline(overview.outline)
+            for item in overview.outline
         ],
         "search_hints": overview.search_hints,
     }
