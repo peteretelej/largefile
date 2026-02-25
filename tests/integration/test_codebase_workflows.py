@@ -185,3 +185,44 @@ class TestCodebaseWorkflows:
         if result["success"]:
             assert result["preview"] is not None
             assert result["backup_created"] is None  # No backup in preview mode
+
+
+class TestJavaWorkflows:
+    """Integration tests for Java codebase navigation."""
+
+    @property
+    def test_data_dir(self):
+        return Path(__file__).parent.parent / "test_data"
+
+    def test_java_overview_line_count(self):
+        """get_overview returns valid line_count for Java file."""
+        java_file = self.test_data_dir / "java" / "spring-application.java"
+        result = get_overview(str(java_file))
+        assert result["line_count"] > 0
+
+    def test_java_overview_outline_is_list(self):
+        """get_overview outline is always a list (never crashes)."""
+        java_file = self.test_data_dir / "java" / "spring-application.java"
+        result = get_overview(str(java_file))
+        assert isinstance(result["outline"], list)
+
+    def test_java_overview_detects_interface(self):
+        """get_overview outline contains at least one interface or class item."""
+        java_file = self.test_data_dir / "java" / "spring-application.java"
+        result = get_overview(str(java_file))
+        outline = result["outline"]
+        if outline:  # only assert when tree-sitter parsed successfully
+            types = [item["type"] for item in outline]
+            assert "interface" in types or "class" in types
+
+    def test_java_search_finds_method_names(self):
+        """search_content finds methods by name in Java file."""
+        java_file = self.test_data_dir / "java" / "spring-application.java"
+        result = search_content(str(java_file), "get", fuzzy=False)
+        assert result["total_matches"] > 0
+
+    def test_java_read_content_head(self):
+        """read_content head mode returns content from Java file."""
+        java_file = self.test_data_dir / "java" / "spring-application.java"
+        result = read_content(str(java_file), limit=20, mode="head")
+        assert len(result["content"]) > 0

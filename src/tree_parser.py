@@ -16,6 +16,7 @@ SUPPORTED_LANGUAGES = {
     ".tsx": "typescript",
     ".rs": "rust",
     ".go": "go",
+    ".java": "java",
 }
 
 
@@ -66,6 +67,10 @@ def get_language_parser(file_extension: str) -> Any | None:
             import tree_sitter_go
 
             language_capsule = tree_sitter_go.language()
+        elif language_name == "java":
+            import tree_sitter_java
+
+            language_capsule = tree_sitter_java.language()
         else:
             return None
 
@@ -222,7 +227,54 @@ def get_node_context(node: Any) -> str | None:
         return "impl block"
 
     elif node_type == "interface_declaration":
+        name_node = None
+        for child in node.children:
+            if child.type in ("type_identifier", "identifier"):
+                name_node = child
+                break
+        if name_node:
+            return f"interface {name_node.text.decode('utf-8')}"
         return "interface"
+
+    elif node_type == "class_declaration":
+        name_node = None
+        for child in node.children:
+            if child.type == "identifier":
+                name_node = child
+                break
+        if name_node:
+            return f"class {name_node.text.decode('utf-8')}"
+        return "class"
+
+    elif node_type == "method_declaration":
+        name_node = None
+        for child in node.children:
+            if child.type == "identifier":
+                name_node = child
+                break
+        if name_node:
+            return f"method {name_node.text.decode('utf-8')}()"
+        return "method"
+
+    elif node_type == "constructor_declaration":
+        name_node = None
+        for child in node.children:
+            if child.type == "identifier":
+                name_node = child
+                break
+        if name_node:
+            return f"constructor {name_node.text.decode('utf-8')}()"
+        return "constructor"
+
+    elif node_type == "enum_declaration":
+        name_node = None
+        for child in node.children:
+            if child.type == "identifier":
+                name_node = child
+                break
+        if name_node:
+            return f"enum {name_node.text.decode('utf-8')}"
+        return "enum"
 
     # Return None for nodes we don't have specific handling for
     return None
@@ -365,6 +417,55 @@ def create_outline_item_from_node(node: Any, depth: int) -> OutlineItem | None:
                 line_count=node.end_point[0] - node.start_point[0] + 1,
             )
 
+    # Java-specific nodes
+    elif node_type == "class_declaration":
+        name = extract_node_name(node, "identifier")
+        if name:
+            return OutlineItem(
+                name=f"class {name}",
+                type="class",
+                line_number=node.start_point[0] + 1,
+                end_line=node.end_point[0] + 1,
+                children=[],
+                line_count=node.end_point[0] - node.start_point[0] + 1,
+            )
+
+    elif node_type == "method_declaration":
+        name = extract_node_name(node, "identifier")
+        if name:
+            return OutlineItem(
+                name=f"  {name}()",
+                type="method",
+                line_number=node.start_point[0] + 1,
+                end_line=node.end_point[0] + 1,
+                children=[],
+                line_count=node.end_point[0] - node.start_point[0] + 1,
+            )
+
+    elif node_type == "constructor_declaration":
+        name = extract_node_name(node, "identifier")
+        if name:
+            return OutlineItem(
+                name=f"  {name}()",
+                type="constructor",
+                line_number=node.start_point[0] + 1,
+                end_line=node.end_point[0] + 1,
+                children=[],
+                line_count=node.end_point[0] - node.start_point[0] + 1,
+            )
+
+    elif node_type == "enum_declaration":
+        name = extract_node_name(node, "identifier")
+        if name:
+            return OutlineItem(
+                name=f"enum {name}",
+                type="enum",
+                line_number=node.start_point[0] + 1,
+                end_line=node.end_point[0] + 1,
+                children=[],
+                line_count=node.end_point[0] - node.start_point[0] + 1,
+            )
+
     return None
 
 
@@ -419,6 +520,24 @@ def generate_simple_outline(file_path: str, content: str) -> list[OutlineItem]:
             ("impl ", "impl"),
             ("use ", "import"),
         ]
+    elif file_extension == ".java":
+        patterns = [
+            # Access-modifier variants first (most specific match wins)
+            ("public class ", "class"),
+            ("protected class ", "class"),
+            ("private class ", "class"),
+            ("abstract class ", "class"),
+            ("public abstract class ", "class"),
+            ("final class ", "class"),
+            ("class ", "class"),
+            ("public interface ", "interface"),
+            ("protected interface ", "interface"),
+            ("interface ", "interface"),
+            ("public enum ", "enum"),
+            ("enum ", "enum"),
+            ("import ", "import"),
+            ("@", "annotation"),
+        ]
     else:
         patterns = [
             ("TODO", "todo"),
@@ -427,7 +546,10 @@ def generate_simple_outline(file_path: str, content: str) -> list[OutlineItem]:
             ("HACK", "hack"),
         ]
 
-    for i, line in enumerate(lines[:50], 1):  # Limit to first 50 lines
+    # Java files often have long license headers before class/interface declarations
+    max_lines = 200 if file_extension == ".java" else 50
+
+    for i, line in enumerate(lines[:max_lines], 1):
         line_stripped = line.strip()
         for pattern, item_type in patterns:
             if line_stripped.startswith(pattern):

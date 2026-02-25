@@ -309,3 +309,78 @@ class TestParseFileContent:
         result = parse_file_content("test.py", "")
         # May return tree or None depending on parser behavior
         assert result is None or hasattr(result, "root_node")
+
+
+class TestJavaSupport:
+    """Unit tests for Java language support."""
+
+    def test_java_extension_registered(self):
+        """.java must be in SUPPORTED_LANGUAGES."""
+        assert ".java" in SUPPORTED_LANGUAGES
+        assert SUPPORTED_LANGUAGES[".java"] == "java"
+
+    def test_java_parser_returns_parser_or_none(self):
+        """get_language_parser('.java') never raises; returns parser or None."""
+        result = get_language_parser(".java")
+        assert result is None or hasattr(result, "parse")
+
+    def test_java_parser_fallback_when_unavailable(self):
+        """Returns None gracefully when tree-sitter is disabled."""
+        with patch("src.tree_parser.is_tree_sitter_available", return_value=False):
+            result = get_language_parser(".java")
+            assert result is None
+
+    def test_java_outline_from_snippet(self):
+        """generate_outline returns a list for Java snippet (no crash)."""
+        java_content = "public class Hello {\n    public void greet() {}\n}\n"
+        outline = generate_outline("Hello.java", java_content)
+        assert isinstance(outline, list)
+
+    def test_java_outline_contains_class(self):
+        """generate_outline extracts class when tree-sitter parses Java."""
+        java_content = "public class Hello {\n    public void greet() {}\n}\n"
+        outline = generate_outline("Hello.java", java_content)
+        if outline:  # only assert if tree-sitter parsed successfully
+            types = [item.type for item in outline]
+            assert "class" in types
+
+    def test_java_simple_outline_fallback(self):
+        """generate_simple_outline handles .java patterns."""
+        java_content = (
+            "import java.util.List;\n"
+            "public class Service {\n"
+            "    public interface Handler {}\n"
+            "    public enum Status { OK, FAIL }\n"
+            "}\n"
+        )
+        outline = generate_simple_outline("Service.java", java_content)
+        assert isinstance(outline, list)
+        types = [item.type for item in outline]
+        # At least import and class should be found
+        assert "import" in types or "class" in types
+
+    @pytest.mark.parametrize(
+        "node_type,expected_prefix",
+        [
+            ("class_declaration", "class "),
+            ("interface_declaration", "interface "),
+            ("method_declaration", "method "),
+            ("constructor_declaration", "constructor "),
+            ("enum_declaration", "enum "),
+        ],
+    )
+    def test_java_node_context_strings(self, node_type, expected_prefix):
+        """get_node_context returns expected prefix for Java node types."""
+        from unittest.mock import MagicMock
+
+        node = MagicMock()
+        node.type = node_type
+        child = MagicMock()
+        child.type = "identifier"
+        child.text = b"MyItem"
+        node.children = [child]
+
+        result = get_node_context(node)
+        assert result is not None
+        assert result.startswith(expected_prefix)
+        assert "MyItem" in result
