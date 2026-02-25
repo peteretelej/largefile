@@ -103,7 +103,7 @@ errors = search_content("/var/log/app.log", r"ERROR.*timeout", regex=True)
 
 ## Supported Languages
 
-Tree-sitter semantic analysis for: **Python**, **JavaScript/JSX**, **TypeScript/TSX**, **Rust**, **Go**
+Tree-sitter semantic analysis for: **Python**, **JavaScript/JSX**, **TypeScript/TSX**, **Rust**, **Go**, **Java**
 
 Other file types use text-based analysis with graceful fallback.
 

@@ -16,6 +16,7 @@ SUPPORTED_LANGUAGES = {
     ".tsx": "typescript",
     ".rs": "rust",
     ".go": "go",
+    ".java": "java",
 }
 
 
@@ -66,6 +67,10 @@ def get_language_parser(file_extension: str) -> Any | None:
             import tree_sitter_go
 
             language_capsule = tree_sitter_go.language()
+        elif language_name == "java":
+            import tree_sitter_java
+
+            language_capsule = tree_sitter_java.language()
         else:
             return None
 
@@ -222,14 +227,45 @@ def get_node_context(node: Any) -> str | None:
         return "impl block"
 
     elif node_type == "interface_declaration":
-        return "interface"
+        name = extract_node_name(node, ("type_identifier", "identifier"))
+        return f"interface {name}" if name else "interface"
+
+    elif node_type == "class_declaration":
+        name = extract_node_name(node, "identifier")
+        return f"class {name}" if name else "class"
+
+    elif node_type == "method_declaration":
+        name = extract_node_name(node, "identifier")
+        return f"method {name}()" if name else "method"
+
+    elif node_type == "constructor_declaration":
+        name = extract_node_name(node, "identifier")
+        return f"constructor {name}()" if name else "constructor"
+
+    elif node_type == "enum_declaration":
+        name = extract_node_name(node, "identifier")
+        return f"enum {name}" if name else "enum"
+
+    elif node_type == "annotation_type_declaration":
+        name = extract_node_name(node, "identifier")
+        return f"@interface {name}" if name else "@interface"
 
     # Return None for nodes we don't have specific handling for
     return None
 
 
+def _flatten_outline_items(items: list[OutlineItem]) -> list[OutlineItem]:
+    """Flatten a hierarchical outline tree into a sorted flat list."""
+    flat: list[OutlineItem] = []
+    for item in items:
+        flat.append(item)
+        if item.children:
+            flat.extend(_flatten_outline_items(item.children))
+    return flat
+
+
 def generate_outline(file_path: str, content: str) -> list[OutlineItem]:
-    """Generate hierarchical outline from AST."""
+    """Generate a flat outline of definitions from AST."""
     tree = parse_file_content(file_path, content)
 
     if not tree:
@@ -240,10 +276,11 @@ def generate_outline(file_path: str, content: str) -> list[OutlineItem]:
         outline_items: list[OutlineItem] = []
         root_node = tree.root_node
 
-        # Extract top-level definitions
+        # Extract definitions (builds tree with children)
         extract_outline_items(root_node, outline_items, 0)
 
-        return outline_items
+        # Return flat list sorted by line number
+        return _flatten_outline_items(outline_items)
 
     except Exception:
         # Fall back to simple outline on any error
@@ -258,9 +295,10 @@ def extract_outline_items(node: Any, items: list[OutlineItem], depth: int) -> No
     # Check if this node represents a definition we care about
     outline_item = create_outline_item_from_node(node, depth)
     if outline_item:
-        # Look for child definitions
+        # Look for child definitions within this node's children
         child_items: list[OutlineItem] = []
-        extract_outline_items(node, child_items, depth + 1)
+        for child in node.children:
+            extract_outline_items(child, child_items, depth + 1)
         outline_item.children = child_items
         items.append(outline_item)
         return
@@ -328,9 +366,7 @@ def create_outline_item_from_node(node: Any, depth: int) -> OutlineItem | None:
 
     # Language-specific nodes
     elif node_type in ["struct_item", "struct"]:
-        name = extract_node_name(node, "type_identifier") or extract_node_name(
-            node, "identifier"
-        )
+        name = extract_node_name(node, ("type_identifier", "identifier"))
         if name:
             return OutlineItem(
                 name=f"struct {name}",
@@ -352,9 +388,7 @@ def create_outline_item_from_node(node: Any, depth: int) -> OutlineItem | None:
         )
 
     elif node_type == "interface_declaration":
-        name = extract_node_name(node, "type_identifier") or extract_node_name(
-            node, "identifier"
-        )
+        name = extract_node_name(node, ("type_identifier", "identifier"))
         if name:
             return OutlineItem(
                 name=f"interface {name}",
@@ -365,21 +399,92 @@ def create_outline_item_from_node(node: Any, depth: int) -> OutlineItem | None:
                 line_count=node.end_point[0] - node.start_point[0] + 1,
             )
 
+    # Java-specific nodes
+    elif node_type == "class_declaration":
+        name = extract_node_name(node, "identifier")
+        if name:
+            return OutlineItem(
+                name=f"class {name}",
+                type="class",
+                line_number=node.start_point[0] + 1,
+                end_line=node.end_point[0] + 1,
+                children=[],
+                line_count=node.end_point[0] - node.start_point[0] + 1,
+            )
+
+    elif node_type == "method_declaration":
+        name = extract_node_name(node, "identifier")
+        if name:
+            return OutlineItem(
+                name=f"  {name}()",
+                type="method",
+                line_number=node.start_point[0] + 1,
+                end_line=node.end_point[0] + 1,
+                children=[],
+                line_count=node.end_point[0] - node.start_point[0] + 1,
+            )
+
+    elif node_type == "constructor_declaration":
+        name = extract_node_name(node, "identifier")
+        if name:
+            return OutlineItem(
+                name=f"  {name}()",
+                type="constructor",
+                line_number=node.start_point[0] + 1,
+                end_line=node.end_point[0] + 1,
+                children=[],
+                line_count=node.end_point[0] - node.start_point[0] + 1,
+            )
+
+    elif node_type == "enum_declaration":
+        name = extract_node_name(node, "identifier")
+        if name:
+            return OutlineItem(
+                name=f"enum {name}",
+                type="enum",
+                line_number=node.start_point[0] + 1,
+                end_line=node.end_point[0] + 1,
+                children=[],
+                line_count=node.end_point[0] - node.start_point[0] + 1,
+            )
+
+    elif node_type == "annotation_type_declaration":
+        name = extract_node_name(node, "identifier")
+        if name:
+            return OutlineItem(
+                name=f"@interface {name}",
+                type="annotation_type",
+                line_number=node.start_point[0] + 1,
+                end_line=node.end_point[0] + 1,
+                children=[],
+                line_count=node.end_point[0] - node.start_point[0] + 1,
+            )
+
     return None
 
 
-def extract_node_name(node: Any, name_type: str = "identifier") -> str | None:
-    """Extract the name from a node by looking for a child of the specified type."""
+def extract_node_name(
+    node: Any, allowed_types: str | tuple[str, ...] = "identifier"
+) -> str | None:
+    """Extract the name from a node by finding the first child with a matching type.
+
+    Args:
+        node: Tree-sitter AST node to search.
+        allowed_types: One type string or a tuple of type strings to match.
+
+    Returns:
+        Decoded text of the first matching child, or None if not found.
+    """
     if not node:
         return None
-
+    if isinstance(allowed_types, str):
+        allowed_types = (allowed_types,)
     for child in node.children:
-        if child.type == name_type:
+        if child.type in allowed_types:
             try:
                 return child.text.decode("utf-8")  # type: ignore
             except (UnicodeDecodeError, AttributeError):
                 return None
-
     return None
 
 
@@ -419,6 +524,25 @@ def generate_simple_outline(file_path: str, content: str) -> list[OutlineItem]:
             ("impl ", "impl"),
             ("use ", "import"),
         ]
+    elif file_extension == ".java":
+        patterns = [
+            # Access-modifier variants first (most specific match wins)
+            ("public class ", "class"),
+            ("protected class ", "class"),
+            ("private class ", "class"),
+            ("abstract class ", "class"),
+            ("public abstract class ", "class"),
+            ("final class ", "class"),
+            ("class ", "class"),
+            ("public interface ", "interface"),
+            ("protected interface ", "interface"),
+            ("interface ", "interface"),
+            ("public enum ", "enum"),
+            ("enum ", "enum"),
+            ("import ", "import"),
+            ("@interface ", "annotation_type"),
+            ("@", "annotation"),
+        ]
     else:
         patterns = [
             ("TODO", "todo"),
@@ -427,7 +551,10 @@ def generate_simple_outline(file_path: str, content: str) -> list[OutlineItem]:
             ("HACK", "hack"),
         ]
 
-    for i, line in enumerate(lines[:50], 1):  # Limit to first 50 lines
+    # Java files often have long license headers before class/interface declarations
+    max_lines = 200 if file_extension == ".java" else 50
+
+    for i, line in enumerate(lines[:max_lines], 1):
         line_stripped = line.strip()
         for pattern, item_type in patterns:
             if line_stripped.startswith(pattern):

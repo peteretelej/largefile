@@ -4,12 +4,14 @@ Test core tree-sitter functionality with graceful fallback handling.
 Uses table-driven tests for comprehensive coverage.
 """
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from src.tree_parser import (
     SUPPORTED_LANGUAGES,
+    create_outline_item_from_node,
+    extract_node_name,
     extract_semantic_context,
     generate_outline,
     generate_simple_outline,
@@ -309,3 +311,166 @@ class TestParseFileContent:
         result = parse_file_content("test.py", "")
         # May return tree or None depending on parser behavior
         assert result is None or hasattr(result, "root_node")
+
+
+class TestJavaSupport:
+    """Unit tests for Java language support."""
+
+    def test_java_extension_registered(self):
+        """.java must be in SUPPORTED_LANGUAGES."""
+        assert ".java" in SUPPORTED_LANGUAGES
+        assert SUPPORTED_LANGUAGES[".java"] == "java"
+
+    def test_java_parser_returns_parser_or_none(self):
+        """get_language_parser('.java') never raises; returns parser or None."""
+        result = get_language_parser(".java")
+        assert result is None or hasattr(result, "parse")
+
+    def test_java_parser_fallback_when_unavailable(self):
+        """Returns None gracefully when tree-sitter is disabled."""
+        with patch("src.tree_parser.is_tree_sitter_available", return_value=False):
+            result = get_language_parser(".java")
+            assert result is None
+
+    def test_java_outline_from_snippet(self):
+        """generate_outline returns a list for Java snippet (no crash)."""
+        java_content = "public class Hello {\n    public void greet() {}\n}\n"
+        outline = generate_outline("Hello.java", java_content)
+        assert isinstance(outline, list)
+
+    def test_java_outline_contains_class(self):
+        """generate_outline extracts class when tree-sitter parses Java."""
+        java_content = "public class Hello {\n    public void greet() {}\n}\n"
+        outline = generate_outline("Hello.java", java_content)
+        if outline:  # only assert if tree-sitter parsed successfully
+            types = [item.type for item in outline]
+            assert "class" in types
+
+    def test_java_simple_outline_fallback(self):
+        """generate_simple_outline handles .java patterns."""
+        java_content = (
+            "import java.util.List;\n"
+            "public class Service {\n"
+            "    public interface Handler {}\n"
+            "    public enum Status { OK, FAIL }\n"
+            "}\n"
+        )
+        outline = generate_simple_outline("Service.java", java_content)
+        assert isinstance(outline, list)
+        types = [item.type for item in outline]
+        # At least import and class should be found
+        assert "import" in types or "class" in types
+
+    @pytest.mark.parametrize(
+        "node_type,expected_prefix",
+        [
+            ("class_declaration", "class "),
+            ("interface_declaration", "interface "),
+            ("method_declaration", "method "),
+            ("constructor_declaration", "constructor "),
+            ("enum_declaration", "enum "),
+            ("annotation_type_declaration", "@interface "),
+        ],
+    )
+    def test_java_node_context_strings(self, node_type, expected_prefix):
+        """get_node_context returns expected prefix for Java node types."""
+        node = MagicMock()
+        node.type = node_type
+        child = MagicMock()
+        child.type = "identifier"
+        child.text = b"MyItem"
+        node.children = [child]
+
+        result = get_node_context(node)
+        assert result is not None
+        assert result.startswith(expected_prefix)
+        assert "MyItem" in result
+
+    def test_java_annotation_type_in_simple_outline(self):
+        """generate_simple_outline recognises @interface declarations."""
+        java_content = (
+            "import java.lang.annotation.Retention;\n"
+            "@interface Transactional {\n"
+            "    int timeout() default 0;\n"
+            "}\n"
+        )
+        outline = generate_simple_outline("Transactional.java", java_content)
+        assert isinstance(outline, list)
+        types = [item.type for item in outline]
+        assert "annotation_type" in types
+
+    @pytest.mark.parametrize(
+        "node_type,expected_type,expected_name_fragment",
+        [
+            ("constructor_declaration", "constructor", "MyClass"),
+            ("enum_declaration", "enum", "Status"),
+            ("annotation_type_declaration", "annotation_type", "Transactional"),
+        ],
+    )
+    def test_java_outline_item_from_node(
+        self, node_type, expected_type, expected_name_fragment
+    ):
+        """create_outline_item_from_node returns OutlineItem for Java node types."""
+        node = MagicMock()
+        node.type = node_type
+        node.start_point = (10, 0)
+        node.end_point = (20, 1)
+        child = MagicMock()
+        child.type = "identifier"
+        child.text = expected_name_fragment.encode()
+        node.children = [child]
+
+        item = create_outline_item_from_node(node, depth=1)
+        assert item is not None
+        assert item.type == expected_type
+        assert expected_name_fragment in item.name
+        assert item.line_number == 11
+        assert item.end_line == 21
+
+    def test_extract_node_name_decode_error(self):
+        """extract_node_name returns None when text.decode raises."""
+        node = MagicMock()
+        child = MagicMock()
+        child.type = "identifier"
+        child.text.decode.side_effect = UnicodeDecodeError("utf-8", b"", 0, 1, "err")
+        node.children = [child]
+
+        result = extract_node_name(node, "identifier")
+        assert result is None
+
+    def test_extract_node_name_attribute_error(self):
+        """extract_node_name returns None when child has no text attribute."""
+        node = MagicMock()
+        child = MagicMock()
+        child.type = "identifier"
+        child.text.decode.side_effect = AttributeError("no text")
+        node.children = [child]
+
+        result = extract_node_name(node, "identifier")
+        assert result is None
+
+    def test_extract_node_name_tuple_types(self):
+        """extract_node_name accepts a tuple of allowed types."""
+        node = MagicMock()
+        child = MagicMock()
+        child.type = "type_identifier"
+        child.text = b"MyInterface"
+        node.children = [child]
+
+        result = extract_node_name(node, ("identifier", "type_identifier"))
+        assert result == "MyInterface"
+
+    def test_java_outline_methods_in_class(self):
+        """generate_outline flattens class methods into the top-level list."""
+        java_content = (
+            "public class Calculator {\n"
+            "    public int add(int a, int b) { return a + b; }\n"
+            "    public int subtract(int a, int b) { return a - b; }\n"
+            "}\n"
+        )
+        outline = generate_outline("Calculator.java", java_content)
+        assert isinstance(outline, list)
+        if any(item.type == "class" for item in outline):
+            # When tree-sitter is active, methods must also be in the flat list
+            method_items = [item for item in outline if item.type == "method"]
+            assert len(method_items) >= 1
