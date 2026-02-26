@@ -240,7 +240,7 @@ def get_tool_schemas() -> list[types.Tool]:
             name="list_directory",
             description=(
                 "List the contents of a directory. Result will have the name of the child. "
-                "If the name ends in /, it's a folder, otherwise a file. "
+                "Each entry has a type field: 'dir' for directories, 'file' for files. "
                 "Use max_depth > 1 to recurse into subdirectories. "
                 "Automatically ignores __pycache__, node_modules, and .git. "
                 "Returns entry type, size in bytes, and child count for directories."

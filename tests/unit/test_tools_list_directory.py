@@ -1,6 +1,8 @@
 """Unit tests for the list_directory tool function."""
 
+import os
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 from src.tools import list_directory
 
@@ -159,6 +161,14 @@ class TestListDirectoryIgnoredPatterns:
         names = [e["name"] for e in result["entries"]]
         assert ".git" not in names
 
+    def test_empty_env_var_disables_all_ignore_patterns(self, tmp_path: Path) -> None:
+        """LARGEFILE_IGNORED_DIR_PATTERNS='' must not produce a spurious [''] pattern."""
+        with patch.dict(os.environ, {"LARGEFILE_IGNORED_DIR_PATTERNS": ""}):
+            from src.config import Config
+
+            cfg = Config()
+        assert cfg.ignored_dir_patterns == []
+
 
 # ---------------------------------------------------------------------------
 # TestListDirectoryDepth
@@ -205,3 +215,73 @@ class TestListDirectoryTruncation:
         result = list_directory(str(tmp_path), max_entries=10)
         assert result["truncated"] is False
         assert len(result["entries"]) == 5
+
+
+# ---------------------------------------------------------------------------
+# TestListDirectoryErrorPaths
+# ---------------------------------------------------------------------------
+
+
+class TestListDirectoryErrorPaths:
+    def test_permission_error_on_root_scan_returns_empty(self, tmp_path: Path) -> None:
+        """PermissionError on os.scandir(dir_path) returns empty entries (lines 698-699)."""
+        with patch("src.tools.os.scandir", side_effect=PermissionError):
+            result = list_directory(str(tmp_path))
+        assert result["entries"] == []
+        assert result["total_files"] == 0
+        assert result["total_dirs"] == 0
+        assert result["truncated"] is False
+
+    def test_recursive_truncation_stops_parent_iteration(self, tmp_path: Path) -> None:
+        """counter.truncated=True from recursive call breaks parent loop (line 703)."""
+        alpha = tmp_path / "alpha"
+        alpha.mkdir()
+        (alpha / "file_a.txt").write_text("")
+        (alpha / "file_b.txt").write_text("")
+        (tmp_path / "beta").mkdir()
+
+        # alpha is processed (total=1), file_a in alpha (total=2 == max),
+        # file_b triggers truncation inside recursion, then parent loop
+        # reaches beta with counter.truncated=True → line 703 break.
+        result = list_directory(str(tmp_path), max_depth=2, max_entries=2)
+
+        assert result["truncated"] is True
+        names = [e["name"] for e in result["entries"]]
+        assert "alpha" in names
+        assert "beta" not in names
+
+    def test_permission_error_counting_children_defaults_to_zero(
+        self, tmp_path: Path
+    ) -> None:
+        """PermissionError when counting subdir children falls back to 0 (lines 719-720)."""
+        (tmp_path / "mydir").mkdir()
+
+        real_scandir = os.scandir
+        call_count = {"n": 0}
+
+        def patched_scandir(path: str) -> object:
+            call_count["n"] += 1
+            if call_count["n"] == 2:  # second call: counting children of mydir
+                raise PermissionError("access denied")
+            return real_scandir(path)
+
+        with patch("src.tools.os.scandir", side_effect=patched_scandir):
+            result = list_directory(str(tmp_path))
+
+        assert result["total_dirs"] == 1
+        assert result["entries"][0]["child_count"] == 0
+
+    def test_oserror_on_stat_defaults_to_zero_bytes(self, tmp_path: Path) -> None:
+        """OSError from entry.stat() falls back to size_bytes=0 (lines 744-745)."""
+        mock_entry = MagicMock()
+        mock_entry.name = "broken_file.txt"
+        mock_entry.path = str(tmp_path / "broken_file.txt")
+        mock_entry.is_dir.return_value = False
+        mock_entry.stat.side_effect = OSError("stat failed")
+
+        with patch("src.tools.os.scandir", return_value=[mock_entry]):
+            result = list_directory(str(tmp_path))
+
+        assert result["total_files"] == 1
+        assert result["entries"][0]["size_bytes"] == 0
+        assert result["entries"][0]["name"] == "broken_file.txt"
