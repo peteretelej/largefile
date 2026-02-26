@@ -36,11 +36,11 @@ class Config:
     max_dir_entries: int = int(os.getenv("LARGEFILE_MAX_DIR_ENTRIES", "200"))
     ignored_dir_patterns: list[str] = field(
         default_factory=lambda: [
-            p
+            p.strip()
             for p in os.getenv(
                 "LARGEFILE_IGNORED_DIR_PATTERNS", "__pycache__,node_modules,.git"
             ).split(",")
-            if p
+            if p.strip()
         ]
     )
 
