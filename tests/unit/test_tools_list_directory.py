@@ -192,7 +192,47 @@ class TestListDirectoryDepth:
         (sub / "deep.txt").write_text("deep")
         result = list_directory(str(tmp_path), max_depth=2)
         names = [e["name"] for e in result["entries"]]
-        assert "deep.txt" in names
+        assert "sub" in names
+        assert "sub/deep.txt" in names
+
+
+# ---------------------------------------------------------------------------
+# TestListDirectoryChildCount
+# ---------------------------------------------------------------------------
+
+
+class TestListDirectoryChildCount:
+    def test_child_count_excludes_hidden_entries(self, tmp_path: Path) -> None:
+        """child_count must not include dot-entries when include_hidden=False."""
+        sub = tmp_path / "sub"
+        sub.mkdir()
+        (sub / "visible.txt").write_text("v")
+        (sub / ".hidden").write_text("h")
+        result = list_directory(str(tmp_path))
+        entry = next(e for e in result["entries"] if e["name"] == "sub")
+        # .hidden is excluded by the default include_hidden=False filter
+        assert entry["child_count"] == 1
+
+    def test_child_count_includes_hidden_when_requested(self, tmp_path: Path) -> None:
+        """child_count includes dot-entries when include_hidden=True."""
+        sub = tmp_path / "sub"
+        sub.mkdir()
+        (sub / "visible.txt").write_text("v")
+        (sub / ".hidden").write_text("h")
+        result = list_directory(str(tmp_path), include_hidden=True)
+        entry = next(e for e in result["entries"] if e["name"] == "sub")
+        assert entry["child_count"] == 2
+
+    def test_child_count_excludes_ignored_patterns(self, tmp_path: Path) -> None:
+        """child_count must not count directories matched by ignored_dir_patterns."""
+        sub = tmp_path / "sub"
+        sub.mkdir()
+        (sub / "app.py").write_text("x")
+        (sub / "__pycache__").mkdir()
+        result = list_directory(str(tmp_path))
+        entry = next(e for e in result["entries"] if e["name"] == "sub")
+        # __pycache__ is in the default ignore patterns
+        assert entry["child_count"] == 1
 
 
 # ---------------------------------------------------------------------------

@@ -673,6 +673,7 @@ def _collect_entries(
     ignored_patterns: list[str],
     counter: _Counter,
     current_depth: int = 0,
+    prefix: str = "",
 ) -> list[DirectoryEntry]:
     """Recursively collect directory entries up to max_depth.
 
@@ -684,6 +685,7 @@ def _collect_entries(
         ignored_patterns: Directory names to skip entirely.
         counter: Shared mutable counter for totals / truncation state.
         current_depth: Current recursion level (starts at 0).
+        prefix: Relative path prefix accumulated from the listing root.
 
     Returns:
         Flat list of DirectoryEntry items for this level.
@@ -715,12 +717,17 @@ def _collect_entries(
         if entry.is_dir(follow_symlinks=False):
             counter.dirs += 1
             try:
-                child_count = sum(1 for _ in os.scandir(entry.path))
+                child_count = sum(
+                    1
+                    for c in os.scandir(entry.path)
+                    if (include_hidden or not c.name.startswith("."))
+                    and c.name not in ignored_patterns
+                )
             except PermissionError:
                 child_count = 0
             entries.append(
                 DirectoryEntry(
-                    name=entry.name,
+                    name=f"{prefix}{entry.name}",
                     type="dir",
                     size_bytes=0,
                     child_count=child_count,
@@ -735,6 +742,7 @@ def _collect_entries(
                     ignored_patterns,
                     counter,
                     current_depth + 1,
+                    f"{prefix}{entry.name}/",
                 )
                 entries.extend(child_entries)
         else:
@@ -745,7 +753,7 @@ def _collect_entries(
                 size = 0
             entries.append(
                 DirectoryEntry(
-                    name=entry.name,
+                    name=f"{prefix}{entry.name}",
                     type="file",
                     size_bytes=size,
                     child_count=None,
