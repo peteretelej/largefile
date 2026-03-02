@@ -787,6 +787,11 @@ def list_directory(
     Returns:
         Dict with entries list, total_files, total_dirs, truncated, truncated_at.
     """
+    if max_depth < 1:
+        raise FileAccessError(f"Invalid max_depth {max_depth}: must be >= 1")
+    if max_entries is not None and max_entries < 1:
+        raise FileAccessError(f"Invalid max_entries {max_entries}: must be >= 1")
+
     dir_path = normalize_path(absolute_dir_path)
 
     if not os.path.isdir(dir_path):

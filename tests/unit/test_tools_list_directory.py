@@ -48,6 +48,26 @@ class TestListDirectoryErrors:
         assert "error" in result
         assert "Not a directory" in result["error"]
 
+    def test_invalid_max_depth_zero(self, tmp_path: Path) -> None:
+        result = list_directory(str(tmp_path), max_depth=0)
+        assert "error" in result
+        assert "max_depth" in result["error"]
+
+    def test_invalid_max_depth_negative(self, tmp_path: Path) -> None:
+        result = list_directory(str(tmp_path), max_depth=-1)
+        assert "error" in result
+        assert "max_depth" in result["error"]
+
+    def test_invalid_max_entries_zero(self, tmp_path: Path) -> None:
+        result = list_directory(str(tmp_path), max_entries=0)
+        assert "error" in result
+        assert "max_entries" in result["error"]
+
+    def test_invalid_max_entries_negative(self, tmp_path: Path) -> None:
+        result = list_directory(str(tmp_path), max_entries=-5)
+        assert "error" in result
+        assert "max_entries" in result["error"]
+
 
 # ---------------------------------------------------------------------------
 # TestListDirectoryBasic
