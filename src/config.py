@@ -34,6 +34,9 @@ class Config:
     tree_sitter_timeout: int = int(os.getenv("LARGEFILE_TREE_SITTER_TIMEOUT", "5"))
 
     max_dir_entries: int = int(os.getenv("LARGEFILE_MAX_DIR_ENTRIES", "200"))
+    max_dir_search_results: int = int(
+        os.getenv("LARGEFILE_MAX_DIR_SEARCH_RESULTS", "100")
+    )
     ignored_dir_patterns: list[str] = field(
         default_factory=lambda: [
             p.strip()

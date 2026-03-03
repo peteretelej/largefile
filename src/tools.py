@@ -1,6 +1,7 @@
+import fnmatch
 import os
 import shutil
-from collections.abc import Callable
+from collections.abc import Callable, Generator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -12,6 +13,7 @@ from .data_models import (
     ChangeResult,
     DirectoryEntry,
     DirectoryListing,
+    DirectorySearchResult,
     FileOverview,
     LongLineStats,
     SearchResult,
@@ -833,4 +835,189 @@ def list_directory(
         "total_dirs": listing.total_dirs,
         "truncated": listing.truncated,
         "truncated_at": listing.truncated_at,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Directory search helpers
+# ---------------------------------------------------------------------------
+
+
+def _iter_searchable_files(
+    dir_path: str,
+    include_pattern: str,
+    include_hidden: bool,
+    ignored_patterns: list[str],
+) -> Generator[str, None, None]:
+    """Yield absolute paths of files matching include_pattern under dir_path.
+
+    Args:
+        dir_path: Root directory to walk.
+        include_pattern: fnmatch pattern matched against file names.
+        include_hidden: Whether to yield files/dirs starting with '.'.
+        ignored_patterns: Directory names to skip entirely.
+
+    Yields:
+        Absolute file paths in sorted, deterministic order.
+    """
+    for root, dirs, files in os.walk(dir_path):
+        dirs[:] = sorted(
+            d
+            for d in dirs
+            if (include_hidden or not d.startswith(".")) and d not in ignored_patterns
+        )
+        for fname in sorted(files):
+            if not include_hidden and fname.startswith("."):
+                continue
+            if not fnmatch.fnmatch(fname, include_pattern):
+                continue
+            yield os.path.join(root, fname)
+
+
+@handle_tool_errors
+def search_directory(
+    absolute_dir_path: str,
+    pattern: str,
+    include_pattern: str = "*",
+    max_results: int | None = None,
+    context_lines: int = 2,
+    fuzzy: bool = False,
+    regex: bool = False,
+    case_sensitive: bool = False,
+    invert: bool = False,
+    include_hidden: bool = False,
+) -> dict:
+    """Search for a pattern across all files in a directory.
+
+    Walks the directory recursively, applies include_pattern filtering on
+    filenames, and runs search_file() on each candidate. Results are grouped
+    by file with relative paths from the search root. Binary and unreadable
+    files are skipped silently.
+
+    CRITICAL: You must use an absolute directory path.
+
+    Args:
+        absolute_dir_path: Absolute path to the directory to search.
+        pattern: Search pattern (exact text, fuzzy, or regex).
+        include_pattern: fnmatch glob matched against file names (default "*").
+            Examples: "*.py", "*.md", "*.ts".
+        max_results: Total match cap across all files. Defaults to server
+            config (LARGEFILE_MAX_DIR_SEARCH_RESULTS = 100).
+        context_lines: Lines of context before/after each match (default 2).
+        fuzzy: Enable fuzzy matching (default False — expensive for many files).
+        regex: Enable Python regex matching (default False).
+        case_sensitive: Case-sensitive search (default False for multi-file).
+        invert: Return non-matching lines, like grep -v (default False).
+        include_hidden: Include dot-files and dot-dirs (default False).
+
+    Returns:
+        Dict with results list grouped by file, match totals, and truncation status.
+    """
+    dir_path = normalize_path(absolute_dir_path)
+
+    if not os.path.isdir(dir_path):
+        raise FileAccessError(f"Not a directory or does not exist: {dir_path}")
+
+    effective_max = (
+        max_results if max_results is not None else config.max_dir_search_results
+    )
+    if effective_max < 1:
+        raise FileAccessError(f"Invalid max_results {effective_max}: must be >= 1")
+
+    total_matches = 0
+    files_searched = 0
+    files_with_matches = 0
+    truncated = False
+    truncated_at: str | None = None
+    results: list[dict] = []
+
+    for abs_path in _iter_searchable_files(
+        dir_path, include_pattern, include_hidden, config.ignored_dir_patterns
+    ):
+        try:
+            matches = search_file(
+                abs_path, pattern, fuzzy, regex, case_sensitive, invert
+            )
+        except Exception:
+            continue  # skip unreadable / binary files silently
+
+        files_searched += 1
+
+        if not matches:
+            continue
+
+        remaining = effective_max - total_matches
+        if remaining <= 0:
+            truncated = True
+            truncated_at = os.path.relpath(abs_path, dir_path).replace("\\", "/")
+            break
+
+        clipped = matches[:remaining]
+
+        try:
+            lines = read_file_lines(abs_path)
+        except Exception:
+            lines = []
+
+        match_dicts: list[dict] = []
+        for m in clipped:
+            line_num = m.line_number
+
+            context_before = [
+                lines[i - 1].rstrip("\n\r")
+                for i in range(max(1, line_num - context_lines), line_num)
+                if i <= len(lines)
+            ]
+            context_after = [
+                lines[i - 1].rstrip("\n\r")
+                for i in range(
+                    line_num + 1,
+                    min(len(lines) + 1, line_num + context_lines + 1),
+                )
+                if i <= len(lines)
+            ]
+            match_content, is_truncated = truncate_line(m.content)
+            match_dicts.append(
+                {
+                    "line_number": line_num,
+                    "match": match_content,
+                    "context_before": context_before,
+                    "context_after": context_after,
+                    "similarity_score": m.similarity_score,
+                    "match_type": m.match_type,
+                    "truncated": is_truncated,
+                }
+            )
+
+        total_matches += len(clipped)
+        files_with_matches += 1
+        rel_path = os.path.relpath(abs_path, dir_path).replace("\\", "/")
+        results.append({"file": rel_path, "matches": match_dicts})
+
+        if len(clipped) < len(matches):
+            truncated = True
+            truncated_at = rel_path
+            break
+
+    summary = DirectorySearchResult(
+        path=dir_path,
+        pattern=pattern,
+        include_pattern=include_pattern,
+        total_matches=total_matches,
+        files_searched=files_searched,
+        files_with_matches=files_with_matches,
+        truncated=truncated,
+        truncated_at=truncated_at,
+    )
+
+    return {
+        "path": summary.path,
+        "pattern": summary.pattern,
+        "include_pattern": summary.include_pattern,
+        "total_matches": summary.total_matches,
+        "files_searched": summary.files_searched,
+        "files_with_matches": summary.files_with_matches,
+        "truncated": summary.truncated,
+        "truncated_at": summary.truncated_at,
+        "results": results,
     }
