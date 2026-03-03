@@ -18,6 +18,7 @@ class ToolsModule(Protocol):
     def read_content(self, **kwargs: Any) -> Any: ...
     def edit_content(self, **kwargs: Any) -> Any: ...
     def revert_edit(self, **kwargs: Any) -> Any: ...
+    def list_directory(self, **kwargs: Any) -> Any: ...
 
 
 def get_tool_schemas() -> list[types.Tool]:
@@ -235,6 +236,41 @@ def get_tool_schemas() -> list[types.Tool]:
             },
             annotations=types.ToolAnnotations(destructiveHint=True),
         ),
+        types.Tool(
+            name="list_directory",
+            description=(
+                "List the contents of a directory. Result will have the name of the child. "
+                "Each entry has a type field: 'dir' for directories, 'file' for files. "
+                "Use max_depth > 1 to recurse into subdirectories. "
+                "Automatically ignores __pycache__, node_modules, and .git. "
+                "Returns entry type, size in bytes, and child count for directories."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "absolute_dir_path": {
+                        "type": "string",
+                        "description": "The absolute path to the directory to list.",
+                    },
+                    "max_depth": {
+                        "type": "integer",
+                        "description": "How many levels deep to recurse (default: 1 = direct children only).",
+                        "default": 1,
+                    },
+                    "max_entries": {
+                        "type": "integer",
+                        "description": "Maximum total entries to return. Defaults to server config (200).",
+                    },
+                    "include_hidden": {
+                        "type": "boolean",
+                        "description": "Include entries starting with '.' (default: false).",
+                        "default": False,
+                    },
+                },
+                "required": ["absolute_dir_path"],
+            },
+            annotations=types.ToolAnnotations(readOnlyHint=True),
+        ),
     ]
 
 
@@ -259,6 +295,8 @@ def register_tool_handlers(server: Server, tools_module: ToolsModule) -> None:
             result = tools_module.edit_content(**arguments)
         elif name == "revert_edit":
             result = tools_module.revert_edit(**arguments)
+        elif name == "list_directory":
+            result = tools_module.list_directory(**arguments)
         else:
             raise ValueError(f"Unknown tool: {name}")
 

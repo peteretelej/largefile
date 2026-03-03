@@ -298,3 +298,21 @@ echo "test content" > test.txt
 4. **Cleanup frequency** - adjust max backups based on usage
 
 See [Performance Documentation](performance.md) for detailed benchmarks and optimization guides.
+
+## Directory Listing Configuration
+
+Control the `list_directory` tool behaviour:
+
+```bash
+# Maximum total entries returned by list_directory (default: 200)
+LARGEFILE_MAX_DIR_ENTRIES=200
+
+# Comma-separated directory names that are always skipped (default shown)
+LARGEFILE_IGNORED_DIR_PATTERNS=__pycache__,node_modules,.git
+```
+
+**Notes:**
+- `LARGEFILE_MAX_DIR_ENTRIES` is a hard cap across all recursion depths combined.
+- `LARGEFILE_IGNORED_DIR_PATTERNS` matches exact directory *names* (not paths or globs).
+  Hidden directories (e.g. `.git`) are filtered independently by `include_hidden`.
+- Entries are always listed directories-first, then files, each group sorted alphabetically.
