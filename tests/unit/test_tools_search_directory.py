@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from unittest.mock import patch
 
-from src.exceptions import SearchError
+from src.exceptions import FileAccessError, SearchError
 from src.tools import search_directory
 
 # ---------------------------------------------------------------------------
@@ -323,7 +323,7 @@ class TestSearchDirectorySearchModes:
 
 class TestSearchDirectoryErrorPaths:
     def test_unreadable_file_is_skipped_silently(self, tmp_path: Path) -> None:
-        """OSError from search_file (unreadable / binary) causes the file to be skipped."""
+        """FileAccessError from search_file (unreadable / binary) causes the file to be skipped."""
         (tmp_path / "good.txt").write_text("needle\n")
         (tmp_path / "bad.txt").write_text("needle\n")
 
@@ -335,7 +335,7 @@ class TestSearchDirectoryErrorPaths:
         def patched_search(path: str, *args, **kwargs):  # type: ignore[no-untyped-def]
             call_count["n"] += 1
             if "bad.txt" in path:
-                raise OSError("access denied")
+                raise FileAccessError("Cannot read bad.txt: access denied")
             return real_search(path, *args, **kwargs)
 
         with patch("src.tools.search_file", side_effect=patched_search):
@@ -349,13 +349,13 @@ class TestSearchDirectoryErrorPaths:
         assert "bad.txt" not in files
 
     def test_files_searched_does_not_count_skipped_files(self, tmp_path: Path) -> None:
-        """Files that throw on search_file are not counted in files_searched."""
+        """Files that raise FileAccessError on search_file are not counted in files_searched."""
         (tmp_path / "a.txt").write_text("x\n")
         (tmp_path / "b.txt").write_text("x\n")
 
         def patched_search(path: str, *args, **kwargs):  # type: ignore[no-untyped-def]
             if "b.txt" in path:
-                raise PermissionError("denied")
+                raise FileAccessError("Cannot read b.txt: denied")
             return []
 
         with patch("src.tools.search_file", side_effect=patched_search):

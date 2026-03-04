@@ -938,7 +938,7 @@ def search_directory(
             matches = search_file(
                 abs_path, pattern, fuzzy, regex, case_sensitive, invert
             )
-        except (OSError, UnicodeDecodeError):
+        except FileAccessError:
             continue  # skip unreadable / binary files silently
 
         files_searched += 1
