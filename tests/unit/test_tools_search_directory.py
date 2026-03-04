@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 from unittest.mock import patch
 
+from src.exceptions import SearchError
 from src.tools import search_directory
 
 # ---------------------------------------------------------------------------
@@ -322,7 +323,7 @@ class TestSearchDirectorySearchModes:
 
 class TestSearchDirectoryErrorPaths:
     def test_unreadable_file_is_skipped_silently(self, tmp_path: Path) -> None:
-        """search_file raising any exception causes the file to be silently skipped."""
+        """OSError from search_file (unreadable / binary) causes the file to be skipped."""
         (tmp_path / "good.txt").write_text("needle\n")
         (tmp_path / "bad.txt").write_text("needle\n")
 
@@ -373,3 +374,23 @@ class TestSearchDirectoryErrorPaths:
         m = result["results"][0]["matches"][0]
         assert m["context_before"] == []
         assert m["context_after"] == []
+
+    def test_search_error_propagates_as_error_dict(self, tmp_path: Path) -> None:
+        """SearchError (invalid regex, regex+fuzzy) is NOT swallowed — propagates
+        through @handle_tool_errors and surfaces as an error dict."""
+        (tmp_path / "f.txt").write_text("some content\n")
+
+        with patch(
+            "src.tools.search_file",
+            side_effect=SearchError("regex+fuzzy not allowed"),
+        ):
+            result = search_directory(str(tmp_path), ".*", regex=True)
+
+        assert "error" in result
+        assert "regex+fuzzy not allowed" in result["error"]
+
+    def test_invalid_regex_returns_error_dict(self, tmp_path: Path) -> None:
+        """An invalid regex pattern surfaces as an error dict, not empty results."""
+        (tmp_path / "f.txt").write_text("hello\n")
+        result = search_directory(str(tmp_path), "[unclosed", regex=True)
+        assert "error" in result
