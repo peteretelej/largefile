@@ -321,8 +321,8 @@ def get_tool_schemas() -> list[types.Tool]:
                     },
                     "case_sensitive": {
                         "type": "boolean",
-                        "description": "Case-sensitive search (default: false).",
-                        "default": False,
+                        "description": "Case-sensitive search (default: true — matches search_content behaviour).",
+                        "default": True,
                     },
                     "invert": {
                         "type": "boolean",

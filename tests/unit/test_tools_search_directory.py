@@ -283,17 +283,18 @@ class TestSearchDirectoryTruncation:
 
 
 class TestSearchDirectorySearchModes:
-    def test_case_insensitive_by_default(self, tmp_path: Path) -> None:
+    def test_case_sensitive_by_default(self, tmp_path: Path) -> None:
+        """Default is case-sensitive, consistent with search_content."""
         (tmp_path / "f.txt").write_text("Hello World\n")
         result = search_directory(str(tmp_path), "hello world", fuzzy=False)
-        assert result["total_matches"] == 1
+        assert result["total_matches"] == 0
 
-    def test_case_sensitive_when_requested(self, tmp_path: Path) -> None:
+    def test_case_insensitive_when_requested(self, tmp_path: Path) -> None:
         (tmp_path / "f.txt").write_text("Hello World\n")
         result = search_directory(
-            str(tmp_path), "hello world", case_sensitive=True, fuzzy=False
+            str(tmp_path), "hello world", case_sensitive=False, fuzzy=False
         )
-        assert result["total_matches"] == 0
+        assert result["total_matches"] == 1
 
     def test_regex_mode(self, tmp_path: Path) -> None:
         (tmp_path / "f.txt").write_text("error: code 404\ninfo: all good\n")
@@ -314,6 +315,20 @@ class TestSearchDirectorySearchModes:
         (tmp_path / "f.txt").write_text("def process_data(x):\n    pass\n")
         result = search_directory(str(tmp_path), "process_data", fuzzy=True)
         assert result["total_matches"] >= 1
+
+    def test_max_files_cap_truncates(self, tmp_path: Path) -> None:
+        """files_visited > max_dir_search_files sets truncated=True and stops the walk."""
+        for i in range(5):
+            (tmp_path / f"f{i}.txt").write_text("x\n")
+
+        with patch("src.tools.config") as mock_cfg:
+            mock_cfg.max_dir_search_files = 2
+            mock_cfg.max_dir_search_results = 100
+            mock_cfg.ignored_dir_patterns = []
+            result = search_directory(str(tmp_path), "x", fuzzy=False)
+
+        assert result["truncated"] is True
+        assert result["files_with_matches"] <= 2
 
 
 # ---------------------------------------------------------------------------

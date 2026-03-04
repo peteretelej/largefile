@@ -363,6 +363,78 @@ for backup in result["available_backups"]:
 }
 ```
 
+### search_directory
+
+Search for a pattern across all files in a directory tree.
+
+**Signature:**
+```python
+def search_directory(
+    absolute_dir_path: str,
+    pattern: str,
+    include_pattern: str = "*",
+    max_results: int | None = None,
+    context_lines: int = 2,
+    fuzzy: bool = False,
+    regex: bool = False,
+    case_sensitive: bool = True,
+    invert: bool = False,
+    include_hidden: bool = False,
+) -> dict
+```
+
+**Parameters:**
+- `absolute_dir_path`: Absolute path to the directory to search (required)
+- `pattern`: Search pattern — exact text, fuzzy match, or regex (required)
+- `include_pattern`: fnmatch glob matched against file names (default: `"*"`). Examples: `"*.py"`, `"*.md"`, `"*.ts"`
+- `max_results`: Total match cap across all files (default: `LARGEFILE_MAX_DIR_SEARCH_RESULTS = 100`)
+- `context_lines`: Lines of context before/after each match (default: 2)
+- `fuzzy`: Enable fuzzy matching — expensive on large trees, narrow with `include_pattern` first (default: False)
+- `regex`: Enable Python regex matching (default: False)
+- `case_sensitive`: Control case sensitivity (default: True — matches `search_content` behaviour)
+- `invert`: Return non-matching lines like `grep -v` (default: False)
+- `include_hidden`: Include dot-files and dot-directories (default: False)
+
+**Returns:** Dictionary with:
+- `results`: List of per-file result objects (see below)
+- `total_matches`: Total matches across all files
+- `files_searched`: Number of files actually searched
+- `files_with_matches`: Number of files that had at least one match
+- `truncated`: True if cap was reached before finishing
+- `truncated_at`: Relative path of file where truncation occurred (if `truncated`)
+- `pattern`: The search pattern used
+- `directory`: The absolute directory searched
+
+**Per-file Result Object:**
+- `file`: Relative path from the search root (e.g. `"src/tools.py"`)
+- `matches`: List of match objects (same structure as `search_content` results)
+- `match_count`: Number of matches in this file
+
+**Examples:**
+```python
+# Find all TODO comments in Python files
+result = search_directory("/path/to/project", "TODO", include_pattern="*.py", fuzzy=False)
+for file_result in result["results"]:
+    print(f"{file_result['file']}: {file_result['match_count']} TODOs")
+
+# Case-insensitive search (explicit)
+result = search_directory("/path/to/project", "error", case_sensitive=False, fuzzy=False)
+
+# Regex pattern across TypeScript files
+result = search_directory(
+    "/path/to/project",
+    r"console\.(log|warn|error)",
+    include_pattern="*.ts",
+    regex=True,
+    fuzzy=False,
+)
+
+# Find non-test files that import a specific module (invert not useful here, but invert works)
+result = search_directory("/path/to/src", "import React", include_pattern="*.tsx", fuzzy=False)
+print(f"Searched {result['files_searched']} files, found {result['total_matches']} matches")
+print(f"Truncated: {result['truncated']}")
+```
+
 ## Data Models
 
 ### FileOverview

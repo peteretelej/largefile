@@ -883,7 +883,7 @@ def search_directory(
     context_lines: int = 2,
     fuzzy: bool = False,
     regex: bool = False,
-    case_sensitive: bool = False,
+    case_sensitive: bool = True,
     invert: bool = False,
     include_hidden: bool = False,
 ) -> dict:
@@ -906,7 +906,7 @@ def search_directory(
         context_lines: Lines of context before/after each match (default 2).
         fuzzy: Enable fuzzy matching (default False — expensive for many files).
         regex: Enable Python regex matching (default False).
-        case_sensitive: Case-sensitive search (default False for multi-file).
+        case_sensitive: Case-sensitive search (default True, consistent with search_content).
         invert: Return non-matching lines, like grep -v (default False).
         include_hidden: Include dot-files and dot-dirs (default False).
 
@@ -931,9 +931,23 @@ def search_directory(
     truncated_at: str | None = None
     results: list[dict] = []
 
+    files_visited = 0
     for abs_path in _iter_searchable_files(
         dir_path, include_pattern, include_hidden, config.ignored_dir_patterns
     ):
+        files_visited += 1
+        if files_visited > config.max_dir_search_files:
+            truncated = True
+            truncated_at = os.path.relpath(abs_path, dir_path).replace("\\", "/")
+            break
+
+        # Short-circuit: stop walking if match cap already reached from previous file
+        remaining = effective_max - total_matches
+        if remaining <= 0:
+            truncated = True
+            truncated_at = os.path.relpath(abs_path, dir_path).replace("\\", "/")
+            break
+
         try:
             matches = search_file(
                 abs_path, pattern, fuzzy, regex, case_sensitive, invert
@@ -945,12 +959,6 @@ def search_directory(
 
         if not matches:
             continue
-
-        remaining = effective_max - total_matches
-        if remaining <= 0:
-            truncated = True
-            truncated_at = os.path.relpath(abs_path, dir_path).replace("\\", "/")
-            break
 
         clipped = matches[:remaining]
 

@@ -37,6 +37,9 @@ class Config:
     max_dir_search_results: int = int(
         os.getenv("LARGEFILE_MAX_DIR_SEARCH_RESULTS", "100")
     )
+    max_dir_search_files: int = int(
+        os.getenv("LARGEFILE_MAX_DIR_SEARCH_FILES", "10000")
+    )
     ignored_dir_patterns: list[str] = field(
         default_factory=lambda: [
             p.strip()
