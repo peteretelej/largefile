@@ -37,6 +37,7 @@ Navigate, search, and edit large codebases, logs, and data files that exceed AI 
 | `edit_content`     | Safe search/replace with automatic backups             |
 | `revert_edit`      | Recovering from bad edits                              |
 | `list_directory`   | Browse directory trees with recursive depth control    |
+| `search_directory` | Search patterns across all files in a directory        |
 
 ## When to Use Largefile
 

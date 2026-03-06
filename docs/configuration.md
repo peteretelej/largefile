@@ -316,3 +316,26 @@ LARGEFILE_IGNORED_DIR_PATTERNS=__pycache__,node_modules,.git
 - `LARGEFILE_IGNORED_DIR_PATTERNS` matches exact directory *names* (not paths or globs).
   Hidden directories (e.g. `.git`) are filtered independently by `include_hidden`.
 - Entries are always listed directories-first, then files, each group sorted alphabetically.
+
+## Directory Search Configuration
+
+Control the `search_directory` tool behaviour:
+
+```bash
+# Maximum total matches returned by search_directory across all files (default: 100)
+LARGEFILE_MAX_DIR_SEARCH_RESULTS=100
+
+# Maximum number of files visited by search_directory before stopping (default: 10000)
+# Prevents runaway walks on very large directory trees (e.g. searching /)
+LARGEFILE_MAX_DIR_SEARCH_FILES=10000
+```
+
+**Notes:**
+- `LARGEFILE_MAX_DIR_SEARCH_RESULTS` is a hard cap on *total matches* (not files).
+  When reached, `truncated=True` and `truncated_at` indicates where scanning stopped.
+- `LARGEFILE_MAX_DIR_SEARCH_FILES` is a hard cap on *files visited* (not matches).
+  Protects against very deep or wide trees; `truncated=True` is set when triggered.
+- `LARGEFILE_IGNORED_DIR_PATTERNS` is shared with `list_directory` — one config
+  controls both tools.
+- `fuzzy=False` is the default for `search_directory`; enabling it on large trees
+  can be slow. Use `include_pattern` to narrow the scope first.

@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from src.data_models import SimilarMatch
-from src.exceptions import SearchError
+from src.exceptions import FileAccessError, SearchError
 from src.search_engine import (
     find_exact_matches,
     find_fuzzy_matches,
@@ -234,10 +234,16 @@ class TestSearchFileValidation:
         Path(f.name).unlink(missing_ok=True)
 
     def test_regex_and_fuzzy_error(self, temp_file):
-        """Regex and fuzzy together raises error."""
+        """Regex and fuzzy together raises SearchError."""
         with pytest.raises(SearchError) as exc_info:
             search_file(temp_file, "pattern", fuzzy=True, regex=True)
         assert "Cannot use regex and fuzzy together" in str(exc_info.value)
+
+    def test_search_file_unreadable_raises_file_access_error(self):
+        """Unreadable / nonexistent file raises FileAccessError, not SearchError."""
+        with pytest.raises(FileAccessError) as exc_info:
+            search_file("/nonexistent/path/file.txt", "pattern")
+        assert "Cannot read" in str(exc_info.value)
 
     def test_search_file_exact_mode(self, temp_file):
         """Search with fuzzy=False uses exact matching."""

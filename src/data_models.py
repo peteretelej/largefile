@@ -137,3 +137,17 @@ class DirectoryListing:
     total_dirs: int
     truncated: bool
     truncated_at: str | None = None
+
+
+@dataclass
+class DirectorySearchResult:
+    """Summary metadata for a multi-file search operation."""
+
+    path: str
+    pattern: str
+    include_pattern: str
+    total_matches: int
+    files_searched: int
+    files_with_matches: int
+    truncated: bool
+    truncated_at: str | None = None

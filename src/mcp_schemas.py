@@ -19,6 +19,7 @@ class ToolsModule(Protocol):
     def edit_content(self, **kwargs: Any) -> Any: ...
     def revert_edit(self, **kwargs: Any) -> Any: ...
     def list_directory(self, **kwargs: Any) -> Any: ...
+    def search_directory(self, **kwargs: Any) -> Any: ...
 
 
 def get_tool_schemas() -> list[types.Tool]:
@@ -271,6 +272,73 @@ def get_tool_schemas() -> list[types.Tool]:
             },
             annotations=types.ToolAnnotations(readOnlyHint=True),
         ),
+        types.Tool(
+            name="search_directory",
+            description=(
+                "Search for a text pattern across all files in a directory. "
+                "Returns results grouped by file with line numbers and context. "
+                "Use include_pattern to filter by file extension (e.g. '*.py'). "
+                "Automatically ignores __pycache__, node_modules, and .git. "
+                "Prefer fuzzy=False (default) for multi-file search performance."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "absolute_dir_path": {
+                        "type": "string",
+                        "description": "The absolute path to the directory to search.",
+                    },
+                    "pattern": {
+                        "type": "string",
+                        "description": "Text pattern to search for.",
+                    },
+                    "include_pattern": {
+                        "type": "string",
+                        "description": (
+                            "fnmatch glob matched against file names (default: '*'). "
+                            "Examples: '*.py', '*.md', '*.ts'."
+                        ),
+                        "default": "*",
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Total match cap across all files. Defaults to server config (100).",
+                    },
+                    "context_lines": {
+                        "type": "integer",
+                        "description": "Lines of context before/after each match (default: 2).",
+                        "default": 2,
+                    },
+                    "fuzzy": {
+                        "type": "boolean",
+                        "description": "Enable fuzzy matching (default: false \u2014 expensive for many files).",
+                        "default": False,
+                    },
+                    "regex": {
+                        "type": "boolean",
+                        "description": "Enable Python regex matching (default: false).",
+                        "default": False,
+                    },
+                    "case_sensitive": {
+                        "type": "boolean",
+                        "description": "Case-sensitive search (default: true — matches search_content behaviour).",
+                        "default": True,
+                    },
+                    "invert": {
+                        "type": "boolean",
+                        "description": "Return non-matching lines, like grep -v (default: false).",
+                        "default": False,
+                    },
+                    "include_hidden": {
+                        "type": "boolean",
+                        "description": "Include dot-files and dot-dirs (default: false).",
+                        "default": False,
+                    },
+                },
+                "required": ["absolute_dir_path", "pattern"],
+            },
+            annotations=types.ToolAnnotations(readOnlyHint=True),
+        ),
     ]
 
 
@@ -297,6 +365,8 @@ def register_tool_handlers(server: Server, tools_module: ToolsModule) -> None:
             result = tools_module.revert_edit(**arguments)
         elif name == "list_directory":
             result = tools_module.list_directory(**arguments)
+        elif name == "search_directory":
+            result = tools_module.search_directory(**arguments)
         else:
             raise ValueError(f"Unknown tool: {name}")
 

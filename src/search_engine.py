@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 from .config import config
 from .data_models import SimilarMatch
-from .exceptions import SearchError
+from .exceptions import FileAccessError, SearchError
 from .file_access import read_file_lines
 
 
@@ -183,7 +183,7 @@ def search_file(
     try:
         lines = read_file_lines(file_path)
     except Exception as e:
-        raise SearchError(f"Cannot read {file_path}: {e}") from e
+        raise FileAccessError(f"Cannot read {file_path}: {e}") from e
 
     # Route to appropriate matcher
     if regex:
