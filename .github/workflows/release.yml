@@ -66,12 +66,12 @@ jobs:
       run: |
         TAG_VERSION=${GITHUB_REF#refs/tags/v}
         PYPROJECT_VERSION=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
-        
+
         if [ "$TAG_VERSION" != "$PYPROJECT_VERSION" ]; then
           echo "Error: Tag version ($TAG_VERSION) does not match pyproject.toml version ($PYPROJECT_VERSION)"
           exit 1
         fi
-        
+
         echo "Version validation passed: $TAG_VERSION"
 
     - name: Install dependencies
@@ -82,6 +82,12 @@ jobs:
 
     - name: Build package
       run: uv build
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: dist
+        path: dist/
 
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v2
@@ -97,22 +103,32 @@ jobs:
       url: https://pypi.org/project/largefile/
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+    - name: Check if version exists on PyPI
+      id: pypi_check
+      run: |
+        VERSION=${GITHUB_REF#refs/tags/v}
+        STATUS=$(curl -s -o /dev/null -w "%{http_code}" "https://pypi.org/pypi/largefile/${VERSION}/json")
+        if [ "$STATUS" = "200" ]; then
+          echo "Version $VERSION already exists on PyPI, skipping publish"
+          echo "exists=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "Version $VERSION not found on PyPI, will publish"
+          echo "exists=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Download build artifacts
+      if: steps.pypi_check.outputs.exists == 'false'
+      uses: actions/download-artifact@v4
+      with:
+        name: dist
+        path: dist/
 
     - name: Install uv
+      if: steps.pypi_check.outputs.exists == 'false'
       uses: astral-sh/setup-uv@v6
-      with:
-        enable-cache: true
-        cache-dependency-glob: "uv.lock"
-
-    - name: Set up Python
-      run: uv python install 3.11
-
-    - name: Build package
-      run: uv build
 
     - name: Publish to PyPI
-      run: uv publish
+      if: steps.pypi_check.outputs.exists == 'false'
+      run: uv publish dist/*
       env:
         UV_PUBLISH_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
