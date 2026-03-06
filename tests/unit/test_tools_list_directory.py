@@ -7,30 +7,6 @@ from unittest.mock import MagicMock, patch
 from src.tools import list_directory
 
 # ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _make_tree(base: Path, structure: dict) -> None:
-    """Recursively create files/dirs described by *structure*.
-
-    Keys ending in '/' are directories; other keys are files.
-    Values for files are the byte-string content; values for dirs are
-    nested structure dicts.
-    """
-    for name, content in structure.items():
-        if name.endswith("/"):
-            child = base / name.rstrip("/")
-            child.mkdir(parents=True, exist_ok=True)
-            if isinstance(content, dict):
-                _make_tree(child, content)
-        else:
-            (base / name).write_bytes(
-                content if isinstance(content, bytes) else content.encode()
-            )
-
-
-# ---------------------------------------------------------------------------
 # TestListDirectoryErrors
 # ---------------------------------------------------------------------------
 

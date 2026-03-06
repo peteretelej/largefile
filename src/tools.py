@@ -168,7 +168,7 @@ def get_overview(absolute_file_path: str) -> dict:
     elif file_ext == ".rs":
         search_hints = ["fn ", "struct ", "impl ", "use "]
     elif file_ext == ".java":
-        search_hints = ["class ", "interface ", "void ", "public ", "private "]
+        search_hints = ["class ", "interface ", "enum ", "import ", "@interface "]
     else:
         search_hints = ["TODO", "FIXME", "NOTE", "HACK"]
 
