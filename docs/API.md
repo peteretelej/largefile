@@ -7,7 +7,7 @@ Detailed documentation for the Largefile MCP Server tools.
 The Largefile MCP Server provides 7 tools for working with large text files:
 
 | Tool | Purpose |
-|------|---------||
+|------|---------|
 | **get_overview** | File structure analysis with Tree-sitter semantic outline |
 | **search_content** | Pattern search with fuzzy, regex, and invert matching |
 | **read_content** | Targeted reading by offset, pattern, tail, or head mode |
@@ -363,6 +363,57 @@ for backup in result["available_backups"]:
 }
 ```
 
+### list_directory
+
+List directory contents with optional recursive depth control.
+
+**Signature:**
+```python
+def list_directory(
+    absolute_dir_path: str,
+    max_depth: int = 1,
+    max_entries: int | None = None,
+    include_hidden: bool = False,
+) -> dict
+```
+
+**Parameters:**
+- `absolute_dir_path`: Absolute path to the directory to list (required)
+- `max_depth`: How many levels deep to recurse (default: 1 = direct children only)
+- `max_entries`: Maximum total entries to return (default: server config, 200)
+- `include_hidden`: Include entries starting with `.` (default: False)
+
+**Returns:** Dictionary with:
+- `path`: Absolute path of the listed directory
+- `entries`: List of entry objects (see below)
+- `total_files`: Number of files found
+- `total_dirs`: Number of directories found
+- `truncated`: True if `max_entries` cap was reached before listing all entries
+- `truncated_at`: Path of the entry where truncation occurred (if `truncated`)
+
+**Entry Object:**
+- `name`: Relative name from the listing root (e.g. `"src/utils.py"` at depth 2)
+- `type`: `"file"` or `"dir"`
+- `size_bytes`: File size in bytes (0 for directories)
+- `child_count`: Number of visible children for directories (null for files)
+
+**Example:**
+```python
+# List direct children
+result = list_directory("/path/to/project")
+for entry in result["entries"]:
+    if entry["type"] == "dir":
+        print(f"{entry['name']}/ ({entry['child_count']} children)")
+    else:
+        print(f"{entry['name']} ({entry['size_bytes']} bytes)")
+
+# Recurse two levels deep
+result = list_directory("/path/to/project", max_depth=2, include_hidden=True)
+print(f"Found {result['total_files']} files, {result['total_dirs']} dirs")
+```
+
+Directories are listed before files, sorted alphabetically within each group. `__pycache__`, `node_modules`, and `.git` are ignored by default (configurable via `LARGEFILE_IGNORED_DIR_PATTERNS`).
+
 ### search_directory
 
 Search for a pattern across all files in a directory tree.
@@ -403,19 +454,19 @@ def search_directory(
 - `truncated`: True if cap was reached before finishing
 - `truncated_at`: Relative path of file where truncation occurred (if `truncated`)
 - `pattern`: The search pattern used
-- `directory`: The absolute directory searched
+- `include_pattern`: The file glob pattern used to filter files
+- `path`: The absolute directory searched
 
 **Per-file Result Object:**
 - `file`: Relative path from the search root (e.g. `"src/tools.py"`)
 - `matches`: List of match objects (same structure as `search_content` results)
-- `match_count`: Number of matches in this file
 
 **Examples:**
 ```python
 # Find all TODO comments in Python files
 result = search_directory("/path/to/project", "TODO", include_pattern="*.py", fuzzy=False)
 for file_result in result["results"]:
-    print(f"{file_result['file']}: {file_result['match_count']} TODOs")
+    print(f"{file_result['file']}: {len(file_result['matches'])} TODOs")
 
 # Case-insensitive search (explicit)
 result = search_directory("/path/to/project", "error", case_sensitive=False, fuzzy=False)

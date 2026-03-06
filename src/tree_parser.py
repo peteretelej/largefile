@@ -399,7 +399,7 @@ def create_outline_item_from_node(node: Any, depth: int) -> OutlineItem | None:
                 line_count=node.end_point[0] - node.start_point[0] + 1,
             )
 
-    # Java-specific nodes
+    # Java and TypeScript declaration nodes
     elif node_type == "class_declaration":
         name = extract_node_name(node, "identifier")
         if name:
