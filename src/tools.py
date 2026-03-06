@@ -699,7 +699,9 @@ def _collect_entries(
             os.scandir(dir_path),
             key=lambda e: (not e.is_dir(follow_symlinks=False), e.name.lower()),
         )
-    except PermissionError:
+    except PermissionError as exc:
+        if current_depth == 0:
+            raise FileAccessError(f"Permission denied: {dir_path}") from exc
         return entries
 
     for entry in raw:
@@ -711,7 +713,7 @@ def _collect_entries(
             break
         if not include_hidden and entry.name.startswith("."):
             continue
-        if entry.name in ignored_patterns:
+        if entry.is_dir(follow_symlinks=False) and entry.name in ignored_patterns:
             continue
 
         counter.total += 1
@@ -723,7 +725,9 @@ def _collect_entries(
                     1
                     for c in os.scandir(entry.path)
                     if (include_hidden or not c.name.startswith("."))
-                    and c.name not in ignored_patterns
+                    and not (
+                        c.is_dir(follow_symlinks=False) and c.name in ignored_patterns
+                    )
                 )
             except PermissionError:
                 child_count = 0
@@ -964,7 +968,7 @@ def search_directory(
 
         try:
             lines = read_file_lines(abs_path)
-        except Exception:
+        except FileAccessError:
             lines = []
 
         match_dicts: list[dict] = []

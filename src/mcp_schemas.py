@@ -257,10 +257,12 @@ def get_tool_schemas() -> list[types.Tool]:
                         "type": "integer",
                         "description": "How many levels deep to recurse (default: 1 = direct children only).",
                         "default": 1,
+                        "minimum": 1,
                     },
                     "max_entries": {
                         "type": "integer",
                         "description": "Maximum total entries to return. Defaults to server config (200).",
+                        "minimum": 1,
                     },
                     "include_hidden": {
                         "type": "boolean",

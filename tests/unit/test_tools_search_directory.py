@@ -382,7 +382,10 @@ class TestSearchDirectoryErrorPaths:
         """If read_file_lines fails after a match is found, context is empty."""
         (tmp_path / "f.txt").write_text("needle\n")
 
-        with patch("src.tools.read_file_lines", side_effect=OSError("read failed")):
+        with patch(
+            "src.tools.read_file_lines",
+            side_effect=FileAccessError("read failed"),
+        ):
             result = search_directory(str(tmp_path), "needle", fuzzy=False)
 
         assert result["total_matches"] == 1

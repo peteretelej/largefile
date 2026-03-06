@@ -181,6 +181,36 @@ class TestListDirectoryIgnoredPatterns:
         names = [e["name"] for e in result["entries"]]
         assert ".git" not in names
 
+    def test_file_named_like_ignored_pattern_is_not_skipped(
+        self, tmp_path: Path
+    ) -> None:
+        """A file named '__pycache__' must still appear in listings."""
+        (tmp_path / "__pycache__").write_text("I am a file")
+        result = list_directory(str(tmp_path))
+        names = [e["name"] for e in result["entries"]]
+        assert "__pycache__" in names
+
+    def test_dir_named_like_ignored_pattern_is_still_skipped(
+        self, tmp_path: Path
+    ) -> None:
+        """A directory named '__pycache__' must be skipped."""
+        (tmp_path / "__pycache__").mkdir()
+        result = list_directory(str(tmp_path))
+        names = [e["name"] for e in result["entries"]]
+        assert "__pycache__" not in names
+
+    def test_child_count_includes_file_named_like_ignored_pattern(
+        self, tmp_path: Path
+    ) -> None:
+        """child_count must count files whose name matches an ignored pattern."""
+        parent = tmp_path / "parent"
+        parent.mkdir()
+        (parent / "__pycache__").write_text("I am a file")
+        (parent / "regular.txt").write_text("ok")
+        result = list_directory(str(tmp_path))
+        entry = next(e for e in result["entries"] if e["name"] == "parent")
+        assert entry["child_count"] == 2
+
     def test_empty_env_var_disables_all_ignore_patterns(self, tmp_path: Path) -> None:
         """LARGEFILE_IGNORED_DIR_PATTERNS='' must not produce a spurious [''] pattern."""
         with patch.dict(os.environ, {"LARGEFILE_IGNORED_DIR_PATTERNS": ""}):
@@ -283,14 +313,33 @@ class TestListDirectoryTruncation:
 
 
 class TestListDirectoryErrorPaths:
-    def test_permission_error_on_root_scan_returns_empty(self, tmp_path: Path) -> None:
-        """PermissionError on os.scandir(dir_path) returns empty entries (lines 698-699)."""
+    def test_permission_error_on_root_scan_returns_error(self, tmp_path: Path) -> None:
+        """PermissionError on os.scandir(dir_path) at root depth returns error dict."""
         with patch("src.tools.os.scandir", side_effect=PermissionError):
             result = list_directory(str(tmp_path))
-        assert result["entries"] == []
-        assert result["total_files"] == 0
-        assert result["total_dirs"] == 0
-        assert result["truncated"] is False
+        assert "error" in result
+        assert "Permission denied" in result["error"]
+
+    def test_permission_error_on_nested_scan_returns_empty(
+        self, tmp_path: Path
+    ) -> None:
+        """PermissionError on a nested directory returns empty children gracefully."""
+        sub = tmp_path / "restricted"
+        sub.mkdir()
+
+        real_scandir = os.scandir
+        call_count = {"n": 0}
+
+        def patched_scandir(path: str) -> object:
+            call_count["n"] += 1
+            if call_count["n"] == 3:  # third call: recursing into restricted/
+                raise PermissionError("access denied")
+            return real_scandir(path)
+
+        with patch("src.tools.os.scandir", side_effect=patched_scandir):
+            result = list_directory(str(tmp_path), max_depth=2)
+        assert "error" not in result
+        assert result["total_dirs"] == 1
 
     def test_recursive_truncation_stops_parent_iteration(self, tmp_path: Path) -> None:
         """counter.truncated=True from recursive call breaks parent loop (line 703)."""
