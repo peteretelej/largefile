@@ -12,6 +12,9 @@ if ! command -v uv &> /dev/null; then
     exit 1
 fi
 
+echo "🔒 Checking uv.lock is up to date..."
+uv lock --check
+
 echo "📦 Installing dependencies..."
 uv sync --dev
 
