@@ -8,6 +8,9 @@ import time
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+from mcp.server.fastmcp.exceptions import ToolError
+
 from src.file_access import create_backup, list_backups
 from src.tools import revert_edit
 
@@ -124,7 +127,7 @@ class TestRevertErrors:
     """Test error conditions for revert_edit."""
 
     def test_revert_no_backups(self):
-        """Returns error with empty available_backups when no backups exist."""
+        """Raises ToolError when no backups exist."""
         with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as f:
             f.write("content")
             temp_path = f.name
@@ -135,13 +138,8 @@ class TestRevertErrors:
                 mock_config.max_backups = 10
 
                 with patch("src.tools.config", mock_config):
-                    result = revert_edit(temp_path)
-
-                assert result["success"] is False
-                assert result["error"] == "No backups found for this file"
-                assert result["available_backups"] == []
-                assert result["reverted_to"] is None
-                assert result["current_saved_as"] is None
+                    with pytest.raises(ToolError, match="No backups found"):
+                        revert_edit(temp_path)
 
         Path(temp_path).unlink(missing_ok=True)
 
@@ -173,17 +171,14 @@ class TestRevertErrors:
         Path(temp_path).unlink(missing_ok=True)
 
     def test_revert_nonexistent_file(self):
-        """Returns error for missing file."""
+        """Raises ToolError for missing file."""
         with tempfile.TemporaryDirectory() as backup_dir:
             with patch("src.file_access.config") as mock_config:
                 mock_config.backup_dir = backup_dir
 
                 with patch("src.tools.config", mock_config):
-                    result = revert_edit("/nonexistent/path/file.txt")
-
-                assert result["success"] is False
-                assert "does not exist" in result["error"]
-                assert result["available_backups"] == []
+                    with pytest.raises(ToolError, match="does not exist"):
+                        revert_edit("/nonexistent/path/file.txt")
 
 
 class TestRevertUpdatesBackupList:

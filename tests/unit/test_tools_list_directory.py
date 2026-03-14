@@ -4,6 +4,9 @@ import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+from mcp.server.fastmcp.exceptions import ToolError
+
 from src.tools import list_directory
 
 # ---------------------------------------------------------------------------
@@ -13,36 +16,30 @@ from src.tools import list_directory
 
 class TestListDirectoryErrors:
     def test_raises_on_nonexistent_path(self, tmp_path: Path) -> None:
-        result = list_directory(str(tmp_path / "does_not_exist"))
-        assert "error" in result
-        assert "Not a directory" in result["error"]
+        with pytest.raises(ToolError, match="Not a directory"):
+            list_directory(str(tmp_path / "does_not_exist"))
 
     def test_raises_on_file_path(self, tmp_path: Path) -> None:
         f = tmp_path / "plain.txt"
         f.write_text("x")
-        result = list_directory(str(f))
-        assert "error" in result
-        assert "Not a directory" in result["error"]
+        with pytest.raises(ToolError, match="Not a directory"):
+            list_directory(str(f))
 
     def test_invalid_max_depth_zero(self, tmp_path: Path) -> None:
-        result = list_directory(str(tmp_path), max_depth=0)
-        assert "error" in result
-        assert "max_depth" in result["error"]
+        with pytest.raises(ToolError, match="max_depth"):
+            list_directory(str(tmp_path), max_depth=0)
 
     def test_invalid_max_depth_negative(self, tmp_path: Path) -> None:
-        result = list_directory(str(tmp_path), max_depth=-1)
-        assert "error" in result
-        assert "max_depth" in result["error"]
+        with pytest.raises(ToolError, match="max_depth"):
+            list_directory(str(tmp_path), max_depth=-1)
 
     def test_invalid_max_entries_zero(self, tmp_path: Path) -> None:
-        result = list_directory(str(tmp_path), max_entries=0)
-        assert "error" in result
-        assert "max_entries" in result["error"]
+        with pytest.raises(ToolError, match="max_entries"):
+            list_directory(str(tmp_path), max_entries=0)
 
     def test_invalid_max_entries_negative(self, tmp_path: Path) -> None:
-        result = list_directory(str(tmp_path), max_entries=-5)
-        assert "error" in result
-        assert "max_entries" in result["error"]
+        with pytest.raises(ToolError, match="max_entries"):
+            list_directory(str(tmp_path), max_entries=-5)
 
 
 # ---------------------------------------------------------------------------
@@ -289,12 +286,13 @@ class TestListDirectoryTruncation:
 
 
 class TestListDirectoryErrorPaths:
-    def test_permission_error_on_root_scan_returns_error(self, tmp_path: Path) -> None:
-        """PermissionError on os.scandir(dir_path) at root depth returns error dict."""
+    def test_permission_error_on_root_scan_raises_tool_error(
+        self, tmp_path: Path
+    ) -> None:
+        """PermissionError on os.scandir(dir_path) at root depth raises ToolError."""
         with patch("src.tools.os.scandir", side_effect=PermissionError):
-            result = list_directory(str(tmp_path))
-        assert "error" in result
-        assert "Permission denied" in result["error"]
+            with pytest.raises(ToolError, match="Permission denied"):
+                list_directory(str(tmp_path))
 
     def test_permission_error_on_nested_scan_returns_empty(
         self, tmp_path: Path

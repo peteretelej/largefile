@@ -5,6 +5,9 @@ Real-world AI/ML documentation exploration scenarios using actual test data.
 
 from pathlib import Path
 
+import pytest
+from mcp.server.fastmcp.exceptions import ToolError
+
 from src.tools import get_overview, read_content, search_content
 
 
@@ -151,17 +154,14 @@ class TestTailMode:
         assert result["start_line"] == expected_start
 
     def test_read_content_tail_mode_requires_positive_limit(self):
-        """Raises error for zero or negative limit."""
+        """Raises ToolError for zero or negative limit."""
         doc = self.test_data_dir / "markdown" / "fastapi-docs.md"
 
         if not doc.exists():
             return  # Skip if file doesn't exist
 
-        result = read_content(str(doc), limit=0, mode="tail")
-
-        # Should return error in result
-        assert "error" in result
-        assert "limit" in result["error"].lower()
+        with pytest.raises(ToolError, match="limit must be >= 1"):
+            read_content(str(doc), limit=0, mode="tail")
 
     def test_read_content_head_mode(self):
         """read_content with mode=head returns first N lines."""

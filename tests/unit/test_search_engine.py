@@ -7,6 +7,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
+from mcp.server.fastmcp.exceptions import ToolError
 
 from src.data_models import SimilarMatch
 from src.exceptions import FileAccessError, SearchError
@@ -333,10 +334,9 @@ class TestSearchContentTool:
         assert result["inverted"] is True
 
     def test_regex_fuzzy_error_via_tool(self, temp_file):
-        """Tool returns error when regex and fuzzy both True."""
-        result = search_content(temp_file, "pattern", fuzzy=True, regex=True)
-        assert "error" in result
-        assert "Cannot use regex and fuzzy" in result["error"]
+        """Tool raises ToolError when regex and fuzzy both True."""
+        with pytest.raises(ToolError, match="Cannot use regex and fuzzy"):
+            search_content(temp_file, "pattern", fuzzy=True, regex=True)
 
     def test_response_includes_new_fields(self, temp_file):
         """Normal response includes new metadata fields."""

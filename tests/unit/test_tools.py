@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from mcp.server.fastmcp.exceptions import ToolError
 
 from src.exceptions import TreeSitterError
 from src.tools import (
@@ -97,16 +98,12 @@ class TestToolErrorHandlers:
     """Test error handler decorator for various exception types."""
 
     def test_file_access_error_handler(self):
-        """FileAccessError is handled correctly."""
-        result = get_overview("/nonexistent/path/to/file.txt")
-
-        assert "error" in result
-        assert "File access failed" in result["error"]
-        assert "suggestion" in result
-        assert "Check file path" in result["suggestion"]
+        """FileAccessError raises ToolError."""
+        with pytest.raises(ToolError, match="File access failed"):
+            get_overview("/nonexistent/path/to/file.txt")
 
     def test_search_error_handler(self):
-        """SearchError is handled correctly."""
+        """SearchError raises ToolError."""
         content = "test content\n"
 
         with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as f:
@@ -114,27 +111,20 @@ class TestToolErrorHandlers:
             temp_path = f.name
 
         try:
-            # Trigger SearchError by using regex + fuzzy together
-            result = search_content(temp_path, "pattern", fuzzy=True, regex=True)
-
-            assert "error" in result
-            assert "Search failed" in result["error"]
-            assert "suggestion" in result
+            with pytest.raises(ToolError, match="Search failed"):
+                search_content(temp_path, "pattern", fuzzy=True, regex=True)
         finally:
             Path(temp_path).unlink()
 
     def test_edit_error_handler(self):
-        """EditError is handled correctly."""
-        # Empty changes array triggers edit error
+        """EditError raises ToolError for empty changes."""
         with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as f:
             f.write("content\n")
             temp_path = f.name
 
         try:
-            result = edit_content(temp_path, changes=[])
-
-            assert "error" in result
-            assert "Empty changes array" in result["error"]
+            with pytest.raises(ToolError, match="Empty changes array"):
+                edit_content(temp_path, changes=[])
         finally:
             Path(temp_path).unlink()
 
@@ -162,18 +152,14 @@ class TestToolErrorHandlers:
         finally:
             Path(temp_path).unlink()
 
-    def test_general_exception_handler(self):
-        """Unexpected exceptions are handled."""
-        # Mock to raise unexpected exception
+    def test_general_exception_propagates(self):
+        """Unexpected exceptions propagate (FastMCP catches them)."""
         with patch(
             "src.tools.normalize_path",
             side_effect=RuntimeError("Unexpected error"),
         ):
-            result = get_overview("/some/path.txt")
-
-            assert "error" in result
-            assert "Unexpected error" in result["error"]
-            assert "suggestion" in result
+            with pytest.raises(RuntimeError, match="Unexpected error"):
+                get_overview("/some/path.txt")
 
 
 class TestReadContentModes:
@@ -220,10 +206,9 @@ class TestReadContentModes:
         ],
     )
     def test_read_content_validation(self, sample_file, kwargs, error_msg):
-        """Parameter validation returns appropriate errors."""
-        result = read_content(sample_file, **kwargs)
-        assert "error" in result
-        assert error_msg in result["error"]
+        """Parameter validation raises ToolError."""
+        with pytest.raises(ToolError, match=error_msg):
+            read_content(sample_file, **kwargs)
 
     def test_read_content_offset_ignored_in_tail(self, sample_file):
         """Offset ignored warning in tail mode."""
@@ -275,18 +260,15 @@ class TestEditContentValidation:
     def test_edit_content_validation_errors(
         self, editable_file, changes, error_fragment
     ):
-        """Table-driven validation error tests."""
-        result = edit_content(editable_file, changes=changes)
-        assert "error" in result
-        assert error_fragment in result["error"]
+        """Table-driven validation error tests raise ToolError."""
+        with pytest.raises(ToolError, match=error_fragment):
+            edit_content(editable_file, changes=changes)
 
     def test_edit_content_too_many_changes(self, editable_file):
-        """Too many changes returns error."""
-        # Create more changes than max allowed (default 100)
+        """Too many changes raises ToolError."""
         changes = [{"search": f"pattern{i}", "replace": f"new{i}"} for i in range(200)]
-        result = edit_content(editable_file, changes=changes)
-        assert "error" in result
-        assert "Too many changes" in result["error"]
+        with pytest.raises(ToolError, match="Too many changes"):
+            edit_content(editable_file, changes=changes)
 
     def test_edit_content_preview_mode(self, editable_file):
         """Preview mode shows diff without modifying file."""

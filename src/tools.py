@@ -1,4 +1,5 @@
 import fnmatch
+import functools
 import logging
 import os
 import shutil
@@ -6,6 +7,8 @@ from collections.abc import Callable, Generator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from mcp.server.fastmcp.exceptions import ToolError
 
 from .config import config
 from .data_models import (
@@ -47,41 +50,32 @@ logger = logging.getLogger(__name__)
 
 
 def handle_tool_errors(func: Callable) -> Callable:
-    """Decorator to handle tool errors consistently."""
+    """Decorator to convert domain exceptions to ToolError for MCP isError=True."""
 
+    @functools.wraps(func)
     def wrapper(*args: Any, **kwargs: Any) -> dict:
         try:
             return func(*args, **kwargs)  # type: ignore
         except FileAccessError as e:
             logger.exception("File access error")
-            return {
-                "error": f"File access failed: {e}",
-                "suggestion": "Check file path and permissions",
-            }
+            raise ToolError(
+                f"File access failed: {e}\n\nSuggestion: Check file path and permissions"
+            ) from e
         except TreeSitterError as e:
             logger.exception("Tree-sitter error")
-            return {
-                "error": f"Semantic parsing failed: {e}",
-                "suggestion": "File will use text-based analysis",
-            }
+            raise ToolError(
+                f"Code parsing failed: {e}\n\nSuggestion: File may have syntax errors or unsupported language"
+            ) from e
         except SearchError as e:
             logger.exception("Search error")
-            return {
-                "error": f"Search failed: {e}",
-                "suggestion": "Try different search terms or disable fuzzy matching",
-            }
+            raise ToolError(
+                f"Search failed: {e}\n\nSuggestion: Try different search terms or disable fuzzy matching"
+            ) from e
         except EditError as e:
             logger.exception("Edit error")
-            return {
-                "error": f"Edit failed: {e}",
-                "suggestion": "Check search text matches exactly or enable fuzzy matching",
-            }
-        except Exception as e:
-            logger.exception("Unexpected error")
-            return {
-                "error": f"Unexpected error: {e}",
-                "suggestion": "Report this issue with file details",
-            }
+            raise ToolError(
+                f"Edit failed: {e}\n\nSuggestion: Check that the search text exists in the file"
+            ) from e
 
     return wrapper
 
@@ -376,14 +370,13 @@ def read_content(
 
     # Validate parameters
     if offset < 1:
-        return {"error": "offset must be >= 1", "suggestion": "Use 1 for first line"}
+        raise ToolError("offset must be >= 1. Use 1 for first line.")
     if limit < 1:
-        return {"error": "limit must be >= 1", "suggestion": "Use positive limit"}
+        raise ToolError("limit must be >= 1. Use a positive limit.")
     if mode not in ("lines", "semantic", "tail", "head"):
-        return {
-            "error": f"Invalid mode: {mode}",
-            "suggestion": "Use 'lines', 'semantic', 'tail', or 'head'",
-        }
+        raise ToolError(
+            f"Invalid mode: {mode}. Use 'lines', 'semantic', 'tail', or 'head'."
+        )
 
     # Check for ignored params
     if mode in ("tail", "head") and offset != 1:
@@ -525,30 +518,24 @@ def edit_content(
     """
     # Validate changes array
     if not changes:
-        return {
-            "error": "Empty changes array",
-            "suggestion": "Provide at least one change in the changes array",
-        }
+        raise ToolError("Empty changes array. Provide at least one change.")
 
     if len(changes) > config.max_batch_changes:
-        return {
-            "error": f"Too many changes: {len(changes)} exceeds limit of {config.max_batch_changes}",
-            "suggestion": f"Split into multiple calls with at most {config.max_batch_changes} changes each",
-        }
+        raise ToolError(
+            f"Too many changes: {len(changes)} exceeds limit of {config.max_batch_changes}. Split into multiple calls."
+        )
 
     # Convert dict changes to Change objects
     change_objects: list[Change] = []
     for i, c in enumerate(changes):
         if "search" not in c:
-            return {
-                "error": f"Change at index {i} missing required 'search' field",
-                "suggestion": "Each change must have 'search' and 'replace' fields",
-            }
+            raise ToolError(
+                f"Change at index {i} missing required 'search' field. Each change needs 'search' and 'replace'."
+            )
         if "replace" not in c:
-            return {
-                "error": f"Change at index {i} missing required 'replace' field",
-                "suggestion": "Each change must have 'search' and 'replace' fields",
-            }
+            raise ToolError(
+                f"Change at index {i} missing required 'replace' field. Each change needs 'search' and 'replace'."
+            )
         change_objects.append(
             Change(
                 search=c["search"],
@@ -602,24 +589,12 @@ def revert_edit(
     file_path = normalize_path(absolute_file_path)
 
     if not os.path.exists(file_path):
-        return {
-            "success": False,
-            "reverted_to": None,
-            "current_saved_as": None,
-            "available_backups": [],
-            "error": f"File does not exist: {file_path}",
-        }
+        raise ToolError(f"File does not exist: {file_path}")
 
     backups = list_backups(file_path)
 
     if not backups:
-        return {
-            "success": False,
-            "reverted_to": None,
-            "current_saved_as": None,
-            "available_backups": [],
-            "error": "No backups found for this file",
-        }
+        raise ToolError("No backups found for this file")
 
     # Select backup
     target_backup: BackupInfo | None = None

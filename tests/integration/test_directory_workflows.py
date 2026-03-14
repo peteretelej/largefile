@@ -5,6 +5,9 @@ Uses the real test_data directory structure. No mocks.
 
 from pathlib import Path
 
+import pytest
+from mcp.server.fastmcp.exceptions import ToolError
+
 from src.tools import list_directory
 
 
@@ -88,6 +91,6 @@ class TestDirectoryWorkflows:
     # ------------------------------------------------------------------
 
     def test_nonexistent_path_raises(self) -> None:
-        """Passing a non-existent path returns an error dict."""
-        result = list_directory(str(self.test_data_dir / "does_not_exist"))
-        assert "error" in result
+        """Passing a non-existent path raises ToolError."""
+        with pytest.raises(ToolError):
+            list_directory(str(self.test_data_dir / "does_not_exist"))

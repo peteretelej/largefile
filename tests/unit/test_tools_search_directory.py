@@ -4,6 +4,9 @@ import os
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+from mcp.server.fastmcp.exceptions import ToolError
+
 from src.exceptions import FileAccessError, SearchError
 from src.tools import search_directory
 
@@ -38,26 +41,22 @@ def _make_tree(base: Path, structure: dict) -> None:
 
 class TestSearchDirectoryErrors:
     def test_nonexistent_path_returns_error(self, tmp_path: Path) -> None:
-        result = search_directory(str(tmp_path / "does_not_exist"), "pattern")
-        assert "error" in result
-        assert "Not a directory" in result["error"]
+        with pytest.raises(ToolError, match="Not a directory"):
+            search_directory(str(tmp_path / "does_not_exist"), "pattern")
 
     def test_file_path_returns_error(self, tmp_path: Path) -> None:
         f = tmp_path / "plain.txt"
         f.write_text("hello")
-        result = search_directory(str(f), "hello")
-        assert "error" in result
-        assert "Not a directory" in result["error"]
+        with pytest.raises(ToolError, match="Not a directory"):
+            search_directory(str(f), "hello")
 
     def test_invalid_max_results_zero_returns_error(self, tmp_path: Path) -> None:
-        result = search_directory(str(tmp_path), "x", max_results=0)
-        assert "error" in result
-        assert "max_results" in result["error"]
+        with pytest.raises(ToolError, match="max_results"):
+            search_directory(str(tmp_path), "x", max_results=0)
 
     def test_invalid_max_results_negative_returns_error(self, tmp_path: Path) -> None:
-        result = search_directory(str(tmp_path), "x", max_results=-5)
-        assert "error" in result
-        assert "max_results" in result["error"]
+        with pytest.raises(ToolError, match="max_results"):
+            search_directory(str(tmp_path), "x", max_results=-5)
 
 
 # ---------------------------------------------------------------------------
@@ -393,22 +392,19 @@ class TestSearchDirectoryErrorPaths:
         assert m["context_before"] == []
         assert m["context_after"] == []
 
-    def test_search_error_propagates_as_error_dict(self, tmp_path: Path) -> None:
-        """SearchError (invalid regex, regex+fuzzy) is NOT swallowed — propagates
-        through @handle_tool_errors and surfaces as an error dict."""
+    def test_search_error_propagates_as_tool_error(self, tmp_path: Path) -> None:
+        """SearchError propagates through @handle_tool_errors as ToolError."""
         (tmp_path / "f.txt").write_text("some content\n")
 
         with patch(
             "src.tools.search_file",
             side_effect=SearchError("regex+fuzzy not allowed"),
         ):
-            result = search_directory(str(tmp_path), ".*", regex=True)
+            with pytest.raises(ToolError, match="regex\\+fuzzy not allowed"):
+                search_directory(str(tmp_path), ".*", regex=True)
 
-        assert "error" in result
-        assert "regex+fuzzy not allowed" in result["error"]
-
-    def test_invalid_regex_returns_error_dict(self, tmp_path: Path) -> None:
-        """An invalid regex pattern surfaces as an error dict, not empty results."""
+    def test_invalid_regex_raises_tool_error(self, tmp_path: Path) -> None:
+        """An invalid regex pattern raises ToolError."""
         (tmp_path / "f.txt").write_text("hello\n")
-        result = search_directory(str(tmp_path), "[unclosed", regex=True)
-        assert "error" in result
+        with pytest.raises(ToolError, match="Search failed"):
+            search_directory(str(tmp_path), "[unclosed", regex=True)

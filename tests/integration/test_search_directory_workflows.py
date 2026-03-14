@@ -5,6 +5,9 @@ Uses the real src/ and test_data/ directory structures. No mocks.
 
 from pathlib import Path
 
+import pytest
+from mcp.server.fastmcp.exceptions import ToolError
+
 from src.tools import search_directory
 
 
@@ -150,10 +153,9 @@ class TestSearchDirectoryWorkflows:
     # ------------------------------------------------------------------
 
     def test_nonexistent_directory_returns_error(self) -> None:
-        result = search_directory(str(self.test_data_dir / "does_not_exist"), "x")
-        assert "error" in result
+        with pytest.raises(ToolError):
+            search_directory(str(self.test_data_dir / "does_not_exist"), "x")
 
     def test_file_path_returns_error(self) -> None:
-        result = search_directory(str(self.src_dir / "tools.py"), "def")
-        assert "error" in result
-        assert "Not a directory" in result["error"]
+        with pytest.raises(ToolError, match="Not a directory"):
+            search_directory(str(self.src_dir / "tools.py"), "def")
