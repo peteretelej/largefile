@@ -5,6 +5,7 @@ Test core content editing and backup functionality.
 
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 from src.data_models import Change, SimilarMatch
 from src.editor import (
@@ -370,3 +371,71 @@ class TestBatchEditing:
         # Should include similar matches (process_data is similar to proccess_data)
         if results[0].similar_matches:
             assert len(results[0].similar_matches) > 0
+
+
+class TestBatchEditAtomicity:
+    """Test all-or-nothing batch edit semantics."""
+
+    def test_partial_failure_leaves_file_unchanged(self):
+        """If any change fails, the file on disk is not modified."""
+        content = "line one\nline two\nline three\n"
+
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as f:
+            f.write(content)
+            temp_path = f.name
+
+        with tempfile.TemporaryDirectory() as backup_dir:
+            with patch("src.file_access.config") as mock_config:
+                mock_config.backup_dir = backup_dir
+                mock_config.max_backups = 10
+                mock_config.memory_threshold = 50 * 1024 * 1024
+
+                changes = [
+                    Change(search="line one", replace="LINE ONE"),
+                    Change(search="NONEXISTENT", replace="whatever"),
+                ]
+
+                result = batch_edit_content(
+                    temp_path, changes, fuzzy=False, preview=False
+                )
+
+                assert result.success is False
+                assert result.changes_made == 0
+                assert result.changes_failed == 1
+                # File on disk should be unchanged
+                assert Path(temp_path).read_text() == content
+
+        Path(temp_path).unlink(missing_ok=True)
+
+    def test_all_changes_succeed_writes_file(self):
+        """When all changes succeed, the file is written correctly."""
+        content = "line one\nline two\nline three\n"
+
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as f:
+            f.write(content)
+            temp_path = f.name
+
+        with tempfile.TemporaryDirectory() as backup_dir:
+            with patch("src.file_access.config") as mock_config:
+                mock_config.backup_dir = backup_dir
+                mock_config.max_backups = 10
+                mock_config.memory_threshold = 50 * 1024 * 1024
+
+                changes = [
+                    Change(search="line one", replace="LINE ONE"),
+                    Change(search="line two", replace="LINE TWO"),
+                ]
+
+                result = batch_edit_content(
+                    temp_path, changes, fuzzy=False, preview=False
+                )
+
+                assert result.success is True
+                assert result.changes_applied == 2
+                assert result.changes_failed == 0
+                # File on disk should be updated
+                new_content = Path(temp_path).read_text()
+                assert "LINE ONE" in new_content
+                assert "LINE TWO" in new_content
+
+        Path(temp_path).unlink(missing_ok=True)

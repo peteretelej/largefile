@@ -59,7 +59,7 @@ def search_content(
         ),
     ],
     max_results: Annotated[
-        int, Field(description="Maximum results to return (1-100)")
+        int, Field(description="Maximum results to return (1-100)", ge=1, le=100)
     ] = 20,
     context_lines: Annotated[
         int, Field(description="Lines of context before/after each match")
@@ -99,7 +99,9 @@ def search_content(
     occurrences. Supports: fuzzy matching (handles typos/whitespace), regex
     patterns, case-insensitive search, inverted matching (like grep -v), and
     count-only mode. Returns ranked matches with line numbers and context
-    (lines truncated to 500 chars).
+    (lines truncated to 500 chars). When count_only=True, returns
+    {count, pattern, fuzzy_enabled, regex_enabled, case_sensitive, inverted}
+    instead of the full results structure.
     """
     return tools.search_content(  # type: ignore[no-any-return]
         absolute_file_path,
@@ -125,7 +127,8 @@ def read_content(
     offset: Annotated[
         int,
         Field(
-            description="Starting line number, 1-indexed (default: 1). Ignored in tail/head modes."
+            description="Starting line number, 1-indexed (default: 1). Ignored in tail/head modes.",
+            ge=1,
         ),
     ] = 1,
     limit: Annotated[
@@ -250,7 +253,8 @@ def list_directory(
     max_entries: Annotated[
         int | None,
         Field(
-            description="Maximum total entries to return. Defaults to server config (200)."
+            description="Maximum total entries to return. Defaults to server config (200).",
+            ge=1,
         ),
     ] = None,
     include_hidden: Annotated[
@@ -291,7 +295,9 @@ def search_directory(
     max_results: Annotated[
         int | None,
         Field(
-            description="Total match cap across all files. Defaults to server config (100)."
+            description="Total match cap across all files. Defaults to server config (100).",
+            ge=1,
+            le=100,
         ),
     ] = None,
     context_lines: Annotated[

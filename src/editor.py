@@ -459,6 +459,20 @@ def batch_edit_content(
     # Generate unified diff preview
     preview_text = generate_diff_preview(original_content, modified_content, "batch")
 
+    # All-or-nothing: if any change failed, do not write to disk
+    if changes_failed > 0 and not preview:
+        return EditResult(
+            success=False,
+            preview=preview_text,
+            changes_made=0,
+            line_number=0,
+            similarity_used=0.0,
+            match_type="batch",
+            changes_applied=changes_applied,
+            changes_failed=changes_failed,
+            results=change_results,
+        )
+
     result = EditResult(
         success=changes_applied > 0,
         preview=preview_text,

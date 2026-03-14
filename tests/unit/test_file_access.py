@@ -1111,3 +1111,28 @@ class TestBinarySignatureDetection:
             assert hint == "image"  # Hint from signature, not extension
         finally:
             Path(temp_path).unlink()
+
+
+class TestWritePermissionError:
+    """Test clear permission error handling."""
+
+    def test_write_to_readonly_dir_raises_permission_error(self, tmp_path: Path):
+        """Writing to a file in a read-only directory gives a permission error."""
+        import os
+        import sys
+
+        # Skip on Windows where chmod doesn't restrict owner writes reliably
+        if sys.platform == "win32":
+            return
+
+        subdir = tmp_path / "readonly_dir"
+        subdir.mkdir()
+        f = subdir / "test.txt"
+        f.write_text("original content")
+        os.chmod(str(subdir), 0o555)
+
+        try:
+            with pytest.raises(FileAccessError, match="Permission denied"):
+                write_file_content(str(f), "new content")
+        finally:
+            os.chmod(str(subdir), 0o755)  # Restore for cleanup

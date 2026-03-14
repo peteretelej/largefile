@@ -731,6 +731,7 @@ def _collect_entries(
                     ignored_patterns,
                     counter,
                     current_depth + 1,
+                    # Forward slash for display consistency (not a filesystem path)
                     f"{prefix}{entry.name}/",
                 )
                 entries.extend(child_entries)
