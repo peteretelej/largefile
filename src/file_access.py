@@ -1,4 +1,5 @@
 import hashlib
+import logging
 import mmap
 import os
 import time
@@ -10,6 +11,8 @@ import chardet
 from .config import config
 from .data_models import BackupInfo
 from .exceptions import FileAccessError
+
+logger = logging.getLogger(__name__)
 
 
 def normalize_path(file_path: str) -> str:

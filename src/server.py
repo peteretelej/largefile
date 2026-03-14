@@ -1,9 +1,20 @@
 """MCP server implementation."""
 
+import logging
+import sys
+
 from mcp.server import Server
 
 from . import tools
+from .config import config
 from .mcp_schemas import register_tool_handlers
+
+logging.basicConfig(
+    stream=sys.stderr,
+    level=logging.WARNING,
+    format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+)
+logging.getLogger().setLevel(getattr(logging, config.log_level, logging.WARNING))
 
 
 def create_server() -> Server:

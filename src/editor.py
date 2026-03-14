@@ -1,6 +1,7 @@
 """Search/replace engine with fuzzy matching and atomic operations."""
 
 import difflib
+import logging
 import os
 
 from .config import config
@@ -8,6 +9,8 @@ from .data_models import Change, ChangeResult, EditResult, SimilarMatch
 from .exceptions import EditError
 from .file_access import normalize_path, read_file_content, write_file_content
 from .search_engine import find_similar_patterns
+
+logger = logging.getLogger(__name__)
 
 
 def generate_diff_preview(original: str, modified: str, search_text: str) -> str:

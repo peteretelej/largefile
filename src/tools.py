@@ -1,4 +1,5 @@
 import fnmatch
+import logging
 import os
 import shutil
 from collections.abc import Callable, Generator
@@ -42,6 +43,8 @@ from .tree_parser import (
 )
 from .utils import truncate_line
 
+logger = logging.getLogger(__name__)
+
 
 def handle_tool_errors(func: Callable) -> Callable:
     """Decorator to handle tool errors consistently."""
@@ -50,26 +53,31 @@ def handle_tool_errors(func: Callable) -> Callable:
         try:
             return func(*args, **kwargs)  # type: ignore
         except FileAccessError as e:
+            logger.exception("File access error")
             return {
                 "error": f"File access failed: {e}",
                 "suggestion": "Check file path and permissions",
             }
         except TreeSitterError as e:
+            logger.exception("Tree-sitter error")
             return {
                 "error": f"Semantic parsing failed: {e}",
                 "suggestion": "File will use text-based analysis",
             }
         except SearchError as e:
+            logger.exception("Search error")
             return {
                 "error": f"Search failed: {e}",
                 "suggestion": "Try different search terms or disable fuzzy matching",
             }
         except EditError as e:
+            logger.exception("Edit error")
             return {
                 "error": f"Edit failed: {e}",
                 "suggestion": "Check search text matches exactly or enable fuzzy matching",
             }
         except Exception as e:
+            logger.exception("Unexpected error")
             return {
                 "error": f"Unexpected error: {e}",
                 "suggestion": "Report this issue with file details",
