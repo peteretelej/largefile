@@ -222,10 +222,10 @@ def search_content(
     absolute_file_path: str,
     pattern: str,
     max_results: int = 20,
-    context_lines: int = 3,
+    context_lines: int = 2,
     fuzzy: bool = True,
     regex: bool = False,
-    case_sensitive: bool = True,
+    case_sensitive: bool = False,
     invert: bool = False,
     count_only: bool = False,
 ) -> dict:
@@ -242,7 +242,7 @@ def search_content(
     - context_lines: Number of context lines before/after match
     - fuzzy: Enable fuzzy matching (default True)
     - regex: Enable Python regex matching (default False)
-    - case_sensitive: Case sensitive search (default True, ignored for fuzzy)
+    - case_sensitive: Case sensitive search (default False)
     - invert: Return non-matching lines (default False)
     - count_only: Return just match count, not content (default False)
 
@@ -257,7 +257,7 @@ def search_content(
     if count_only:
         if max_results != 20:
             warnings.append("max_results ignored in count_only mode")
-        if context_lines != 3:
+        if context_lines != 2:
             warnings.append("context_lines ignored in count_only mode")
 
     # Perform search (no limit for count_only mode to get accurate count)
@@ -895,7 +895,7 @@ def search_directory(
     context_lines: int = 2,
     fuzzy: bool = False,
     regex: bool = False,
-    case_sensitive: bool = True,
+    case_sensitive: bool = False,
     invert: bool = False,
     include_hidden: bool = False,
 ) -> dict:
@@ -916,9 +916,9 @@ def search_directory(
         max_results: Total match cap across all files. Defaults to server
             config (LARGEFILE_MAX_DIR_SEARCH_RESULTS = 100).
         context_lines: Lines of context before/after each match (default 2).
-        fuzzy: Enable fuzzy matching (default False — expensive for many files).
+        fuzzy: Enable fuzzy matching (default False, expensive for many files).
         regex: Enable Python regex matching (default False).
-        case_sensitive: Case-sensitive search (default True, consistent with search_content).
+        case_sensitive: Case-sensitive search (default False).
         invert: Return non-matching lines, like grep -v (default False).
         include_hidden: Include dot-files and dot-dirs (default False).
 

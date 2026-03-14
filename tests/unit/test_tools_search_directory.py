@@ -283,11 +283,11 @@ class TestSearchDirectoryTruncation:
 
 
 class TestSearchDirectorySearchModes:
-    def test_case_sensitive_by_default(self, tmp_path: Path) -> None:
-        """Default is case-sensitive, consistent with search_content."""
+    def test_case_insensitive_by_default(self, tmp_path: Path) -> None:
+        """Default is case-insensitive."""
         (tmp_path / "f.txt").write_text("Hello World\n")
         result = search_directory(str(tmp_path), "hello world", fuzzy=False)
-        assert result["total_matches"] == 0
+        assert result["total_matches"] == 1
 
     def test_case_insensitive_when_requested(self, tmp_path: Path) -> None:
         (tmp_path / "f.txt").write_text("Hello World\n")

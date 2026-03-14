@@ -3,9 +3,9 @@
 Single focused test covering MCP server functionality.
 """
 
-from mcp.server import Server
+from mcp.server.fastmcp import FastMCP
 
-from src.server import create_server
+from src.server import mcp
 
 
 class TestMCPServer:
@@ -13,12 +13,9 @@ class TestMCPServer:
 
     def test_server_functionality(self):
         """Test complete MCP server creation and tool registration."""
-        server = create_server()
-
         # Basic server properties
-        assert isinstance(server, Server)
-        assert server.name == "largefile"
+        assert isinstance(mcp, FastMCP)
+        assert mcp.name == "largefile"
 
         # Server should be ready for MCP protocol
-        # (Full MCP protocol testing would require async test setup)
-        assert server is not None
+        assert mcp is not None

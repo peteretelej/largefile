@@ -80,15 +80,15 @@ class TestSearchDirectoryWorkflows:
     # Case sensitivity
     # ------------------------------------------------------------------
 
-    def test_case_sensitive_by_default(self) -> None:
-        """Default case_sensitive=True: uppercased pattern finds fewer matches."""
+    def test_case_insensitive_by_default(self) -> None:
+        """Default case_sensitive=False: both cases find same matches."""
         result_lower = search_directory(
             str(self.src_dir), "def ", include_pattern="*.py", fuzzy=False
         )
         result_upper = search_directory(
             str(self.src_dir), "DEF ", include_pattern="*.py", fuzzy=False
         )
-        assert result_lower["total_matches"] > result_upper["total_matches"]
+        assert result_lower["total_matches"] == result_upper["total_matches"]
 
     def test_case_insensitive_search(self) -> None:
         """Explicit case_sensitive=False finds both upper and lower case."""
