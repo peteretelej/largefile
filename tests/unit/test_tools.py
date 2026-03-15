@@ -223,10 +223,9 @@ class TestReadContentModes:
         assert any("offset ignored" in w for w in result["warnings"])
 
     def test_read_content_pattern_not_found(self, sample_file):
-        """Pattern not found returns error."""
-        result = read_content(sample_file, pattern="NONEXISTENT_PATTERN_XYZ")
-        assert "error" in result
-        assert "not found" in result["error"]
+        """Pattern not found raises ToolError."""
+        with pytest.raises(ToolError, match="not found"):
+            read_content(sample_file, pattern="NONEXISTENT_PATTERN_XYZ")
 
     def test_read_content_semantic_mode_fallback(self, sample_file):
         """Semantic mode falls back to line mode on error."""

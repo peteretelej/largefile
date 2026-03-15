@@ -144,7 +144,7 @@ class TestRevertErrors:
         Path(temp_path).unlink(missing_ok=True)
 
     def test_revert_invalid_backup_id(self):
-        """Returns error with available_backups list for invalid backup_id."""
+        """Raises ToolError with available backups for invalid backup_id."""
         with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as f:
             f.write("content")
             temp_path = f.name
@@ -160,13 +160,8 @@ class TestRevertErrors:
 
                 # Try to revert to non-existent backup
                 with patch("src.tools.config", mock_config):
-                    result = revert_edit(temp_path, backup_id="9999999999")
-
-                assert result["success"] is False
-                assert "9999999999 not found" in result["error"]
-                assert len(result["available_backups"]) > 0
-                assert result["reverted_to"] is None
-                assert result["current_saved_as"] is None
+                    with pytest.raises(ToolError, match="9999999999 not found"):
+                        revert_edit(temp_path, backup_id="9999999999")
 
         Path(temp_path).unlink(missing_ok=True)
 

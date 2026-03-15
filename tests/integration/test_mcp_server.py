@@ -38,25 +38,27 @@ class TestMCPServer:
 
     def test_all_tools_registered(self):
         """All 7 tools are registered."""
-        tool_names = set(mcp._tool_manager._tools.keys())
+        tools = mcp._tool_manager.list_tools()
+        tool_names = {t.name for t in tools}
         assert tool_names == EXPECTED_TOOLS
 
     def test_tool_schemas_have_descriptions(self):
         """All tools have non-empty descriptions."""
-        for name, tool in mcp._tool_manager._tools.items():
-            assert tool.description, f"Tool {name} missing description"
+        for tool in mcp._tool_manager.list_tools():
+            assert tool.description, f"Tool {tool.name} missing description"
 
     def test_no_output_schema(self):
         """No tool has outputSchema (Claude Code bug #25081)."""
-        for name, tool in mcp._tool_manager._tools.items():
+        for tool in mcp._tool_manager.list_tools():
             assert tool.output_schema is None, (
-                f"Tool {name} has outputSchema set, which will cause Claude Code to drop all tools"
+                f"Tool {tool.name} has outputSchema set, which will cause Claude Code to drop all tools"
             )
 
     def test_read_only_annotations(self):
         """Read-only tools have readOnlyHint=True."""
         for name in READ_ONLY_TOOLS:
-            tool = mcp._tool_manager._tools[name]
+            tool = mcp._tool_manager.get_tool(name)
+            assert tool is not None, f"{name} not registered"
             assert tool.annotations is not None, f"{name} missing annotations"
             assert tool.annotations.readOnlyHint is True, (
                 f"{name} should have readOnlyHint=True"
@@ -65,7 +67,8 @@ class TestMCPServer:
     def test_destructive_annotations(self):
         """Destructive tools have destructiveHint=True."""
         for name in DESTRUCTIVE_TOOLS:
-            tool = mcp._tool_manager._tools[name]
+            tool = mcp._tool_manager.get_tool(name)
+            assert tool is not None, f"{name} not registered"
             assert tool.annotations is not None, f"{name} missing annotations"
             assert tool.annotations.destructiveHint is True, (
                 f"{name} should have destructiveHint=True"

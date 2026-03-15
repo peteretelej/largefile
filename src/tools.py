@@ -417,12 +417,10 @@ def read_content(
         # Search for pattern
         matches = search_file(canonical_path, pattern, fuzzy=True)
         if not matches:
-            return {
-                "content": "",
-                "error": f"Pattern '{pattern}' not found in file",
-                "total_lines": total_lines,
-                "mode": mode,
-            }
+            raise ToolError(
+                f"Pattern '{pattern}' not found in file. "
+                f"Try a different search term or use search_content for fuzzy matching."
+            )
         first_match = matches[0]
         start_line = max(1, first_match.line_number - 5)  # Context before match
         match_info = {
@@ -606,22 +604,22 @@ def revert_edit(
                 target_backup = b
                 break
         if target_backup is None:
-            return {
-                "success": False,
-                "reverted_to": None,
-                "current_saved_as": None,
-                "available_backups": [_backup_to_dict(b) for b in backups],
-                "error": f"Backup {backup_id} not found. See available_backups.",
-            }
+            available_ids = ", ".join(b.id for b in backups)
+            raise ToolError(
+                f"Backup {backup_id} not found. Available backups: {available_ids}"
+            )
 
     # At this point target_backup is guaranteed to be set
     assert target_backup is not None
 
-    # Save current state before revert
-    current_backup = create_backup(file_path)
+    try:
+        # Save current state before revert
+        current_backup = create_backup(file_path)
 
-    # Perform revert
-    shutil.copy2(target_backup.path, file_path)
+        # Perform revert
+        shutil.copy2(target_backup.path, file_path)
+    except (PermissionError, OSError) as e:
+        raise ToolError(f"Failed to revert file: {e}") from e
 
     # Get updated backup list
     updated_backups = list_backups(file_path)
