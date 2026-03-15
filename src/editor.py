@@ -1,6 +1,7 @@
 """Search/replace engine with fuzzy matching and atomic operations."""
 
 import difflib
+import logging
 import os
 
 from .config import config
@@ -8,6 +9,8 @@ from .data_models import Change, ChangeResult, EditResult, SimilarMatch
 from .exceptions import EditError
 from .file_access import normalize_path, read_file_content, write_file_content
 from .search_engine import find_similar_patterns
+
+logger = logging.getLogger(__name__)
 
 
 def generate_diff_preview(original: str, modified: str, search_text: str) -> str:
@@ -455,6 +458,20 @@ def batch_edit_content(
 
     # Generate unified diff preview
     preview_text = generate_diff_preview(original_content, modified_content, "batch")
+
+    # All-or-nothing: if any change failed, do not write to disk
+    if changes_failed > 0 and not preview:
+        return EditResult(
+            success=False,
+            preview=preview_text,
+            changes_made=0,
+            line_number=0,
+            similarity_used=0.0,
+            match_type="batch",
+            changes_applied=changes_applied,
+            changes_failed=changes_failed,
+            results=change_results,
+        )
 
     result = EditResult(
         success=changes_applied > 0,

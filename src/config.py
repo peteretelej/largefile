@@ -28,6 +28,8 @@ class Config:
     max_backups: int = int(os.getenv("LARGEFILE_MAX_BACKUPS", "10"))
     max_batch_changes: int = int(os.getenv("LARGEFILE_MAX_BATCH_CHANGES", "50"))
 
+    log_level: str = os.getenv("LARGEFILE_LOG_LEVEL", "WARNING").upper()
+
     enable_tree_sitter: bool = (
         os.getenv("LARGEFILE_ENABLE_TREE_SITTER", "true").lower() == "true"
     )

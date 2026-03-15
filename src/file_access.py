@@ -1,4 +1,5 @@
 import hashlib
+import logging
 import mmap
 import os
 import time
@@ -10,6 +11,8 @@ import chardet
 from .config import config
 from .data_models import BackupInfo
 from .exceptions import FileAccessError
+
+logger = logging.getLogger(__name__)
 
 
 def normalize_path(file_path: str) -> str:
@@ -559,6 +562,12 @@ def write_file_content(file_path: str, content: str) -> None:
             os.unlink(canonical_path)
 
         os.rename(temp_path, canonical_path)
+    except PermissionError as e:
+        if os.path.exists(temp_path):
+            os.unlink(temp_path)
+        raise FileAccessError(
+            f"Permission denied (file may be read-only): {file_path}"
+        ) from e
     except Exception as e:
         if os.path.exists(temp_path):
             os.unlink(temp_path)

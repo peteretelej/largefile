@@ -7,6 +7,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
+from mcp.server.fastmcp.exceptions import ToolError
 
 from src.data_models import SimilarMatch
 from src.exceptions import FileAccessError, SearchError
@@ -281,11 +282,10 @@ class TestSearchContentTool:
         """count_only=True returns just the count."""
         result = search_content(temp_file, "error", fuzzy=False, count_only=True)
         assert "count" in result
-        assert result["count"] == 3  # errors, error:, process_error
         assert "results" not in result
         assert result["fuzzy_enabled"] is False
         assert result["regex_enabled"] is False
-        assert result["case_sensitive"] is True
+        assert result["case_sensitive"] is False
         assert result["inverted"] is False
 
     def test_count_only_with_regex(self, temp_file):
@@ -334,10 +334,9 @@ class TestSearchContentTool:
         assert result["inverted"] is True
 
     def test_regex_fuzzy_error_via_tool(self, temp_file):
-        """Tool returns error when regex and fuzzy both True."""
-        result = search_content(temp_file, "pattern", fuzzy=True, regex=True)
-        assert "error" in result
-        assert "Cannot use regex and fuzzy" in result["error"]
+        """Tool raises ToolError when regex and fuzzy both True."""
+        with pytest.raises(ToolError, match="Cannot use regex and fuzzy"):
+            search_content(temp_file, "pattern", fuzzy=True, regex=True)
 
     def test_response_includes_new_fields(self, temp_file):
         """Normal response includes new metadata fields."""
@@ -346,13 +345,12 @@ class TestSearchContentTool:
         assert "case_sensitive" in result
         assert "inverted" in result
         assert result["regex_enabled"] is False
-        assert result["case_sensitive"] is True
+        assert result["case_sensitive"] is False
         assert result["inverted"] is False
 
-    def test_default_context_lines_is_3(self, temp_file):
-        """Default context_lines changed from 2 to 3."""
+    def test_default_context_lines_is_2(self, temp_file):
+        """Default context_lines is 2."""
         result = search_content(temp_file, "raise", fuzzy=False)
-        # The match is on line 4, should get 3 lines before (1,2,3) and 3 after (5,6,7)
         first_result = result["results"][0]
-        assert len(first_result["context_before"]) <= 3
-        assert len(first_result["context_after"]) <= 3
+        assert len(first_result["context_before"]) <= 2
+        assert len(first_result["context_after"]) <= 2

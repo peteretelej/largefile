@@ -1,10 +1,14 @@
 import fnmatch
+import functools
+import logging
 import os
 import shutil
 from collections.abc import Callable, Generator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from mcp.server.fastmcp.exceptions import ToolError
 
 from .config import config
 from .data_models import (
@@ -42,38 +46,36 @@ from .tree_parser import (
 )
 from .utils import truncate_line
 
+logger = logging.getLogger(__name__)
+
 
 def handle_tool_errors(func: Callable) -> Callable:
-    """Decorator to handle tool errors consistently."""
+    """Decorator to convert domain exceptions to ToolError for MCP isError=True."""
 
+    @functools.wraps(func)
     def wrapper(*args: Any, **kwargs: Any) -> dict:
         try:
             return func(*args, **kwargs)  # type: ignore
         except FileAccessError as e:
-            return {
-                "error": f"File access failed: {e}",
-                "suggestion": "Check file path and permissions",
-            }
+            logger.exception("File access error")
+            raise ToolError(
+                f"File access failed: {e}\n\nSuggestion: Check file path and permissions"
+            ) from e
         except TreeSitterError as e:
-            return {
-                "error": f"Semantic parsing failed: {e}",
-                "suggestion": "File will use text-based analysis",
-            }
+            logger.exception("Tree-sitter error")
+            raise ToolError(
+                f"Code parsing failed: {e}\n\nSuggestion: File may have syntax errors or unsupported language"
+            ) from e
         except SearchError as e:
-            return {
-                "error": f"Search failed: {e}",
-                "suggestion": "Try different search terms or disable fuzzy matching",
-            }
+            logger.exception("Search error")
+            raise ToolError(
+                f"Search failed: {e}\n\nSuggestion: Try different search terms or disable fuzzy matching"
+            ) from e
         except EditError as e:
-            return {
-                "error": f"Edit failed: {e}",
-                "suggestion": "Check search text matches exactly or enable fuzzy matching",
-            }
-        except Exception as e:
-            return {
-                "error": f"Unexpected error: {e}",
-                "suggestion": "Report this issue with file details",
-            }
+            logger.exception("Edit error")
+            raise ToolError(
+                f"Edit failed: {e}\n\nSuggestion: Check that the search text exists in the file"
+            ) from e
 
     return wrapper
 
@@ -214,10 +216,10 @@ def search_content(
     absolute_file_path: str,
     pattern: str,
     max_results: int = 20,
-    context_lines: int = 3,
+    context_lines: int = 2,
     fuzzy: bool = True,
     regex: bool = False,
-    case_sensitive: bool = True,
+    case_sensitive: bool = False,
     invert: bool = False,
     count_only: bool = False,
 ) -> dict:
@@ -234,7 +236,7 @@ def search_content(
     - context_lines: Number of context lines before/after match
     - fuzzy: Enable fuzzy matching (default True)
     - regex: Enable Python regex matching (default False)
-    - case_sensitive: Case sensitive search (default True, ignored for fuzzy)
+    - case_sensitive: Case sensitive search (default False)
     - invert: Return non-matching lines (default False)
     - count_only: Return just match count, not content (default False)
 
@@ -249,7 +251,7 @@ def search_content(
     if count_only:
         if max_results != 20:
             warnings.append("max_results ignored in count_only mode")
-        if context_lines != 3:
+        if context_lines != 2:
             warnings.append("context_lines ignored in count_only mode")
 
     # Perform search (no limit for count_only mode to get accurate count)
@@ -368,14 +370,13 @@ def read_content(
 
     # Validate parameters
     if offset < 1:
-        return {"error": "offset must be >= 1", "suggestion": "Use 1 for first line"}
+        raise ToolError("offset must be >= 1. Use 1 for first line.")
     if limit < 1:
-        return {"error": "limit must be >= 1", "suggestion": "Use positive limit"}
+        raise ToolError("limit must be >= 1. Use a positive limit.")
     if mode not in ("lines", "semantic", "tail", "head"):
-        return {
-            "error": f"Invalid mode: {mode}",
-            "suggestion": "Use 'lines', 'semantic', 'tail', or 'head'",
-        }
+        raise ToolError(
+            f"Invalid mode: {mode}. Use 'lines', 'semantic', 'tail', or 'head'."
+        )
 
     # Check for ignored params
     if mode in ("tail", "head") and offset != 1:
@@ -416,12 +417,10 @@ def read_content(
         # Search for pattern
         matches = search_file(canonical_path, pattern, fuzzy=True)
         if not matches:
-            return {
-                "content": "",
-                "error": f"Pattern '{pattern}' not found in file",
-                "total_lines": total_lines,
-                "mode": mode,
-            }
+            raise ToolError(
+                f"Pattern '{pattern}' not found in file. "
+                f"Try a different search term or use search_content for fuzzy matching."
+            )
         first_match = matches[0]
         start_line = max(1, first_match.line_number - 5)  # Context before match
         match_info = {
@@ -517,30 +516,24 @@ def edit_content(
     """
     # Validate changes array
     if not changes:
-        return {
-            "error": "Empty changes array",
-            "suggestion": "Provide at least one change in the changes array",
-        }
+        raise ToolError("Empty changes array. Provide at least one change.")
 
     if len(changes) > config.max_batch_changes:
-        return {
-            "error": f"Too many changes: {len(changes)} exceeds limit of {config.max_batch_changes}",
-            "suggestion": f"Split into multiple calls with at most {config.max_batch_changes} changes each",
-        }
+        raise ToolError(
+            f"Too many changes: {len(changes)} exceeds limit of {config.max_batch_changes}. Split into multiple calls."
+        )
 
     # Convert dict changes to Change objects
     change_objects: list[Change] = []
     for i, c in enumerate(changes):
         if "search" not in c:
-            return {
-                "error": f"Change at index {i} missing required 'search' field",
-                "suggestion": "Each change must have 'search' and 'replace' fields",
-            }
+            raise ToolError(
+                f"Change at index {i} missing required 'search' field. Each change needs 'search' and 'replace'."
+            )
         if "replace" not in c:
-            return {
-                "error": f"Change at index {i} missing required 'replace' field",
-                "suggestion": "Each change must have 'search' and 'replace' fields",
-            }
+            raise ToolError(
+                f"Change at index {i} missing required 'replace' field. Each change needs 'search' and 'replace'."
+            )
         change_objects.append(
             Change(
                 search=c["search"],
@@ -594,24 +587,12 @@ def revert_edit(
     file_path = normalize_path(absolute_file_path)
 
     if not os.path.exists(file_path):
-        return {
-            "success": False,
-            "reverted_to": None,
-            "current_saved_as": None,
-            "available_backups": [],
-            "error": f"File does not exist: {file_path}",
-        }
+        raise ToolError(f"File does not exist: {file_path}")
 
     backups = list_backups(file_path)
 
     if not backups:
-        return {
-            "success": False,
-            "reverted_to": None,
-            "current_saved_as": None,
-            "available_backups": [],
-            "error": "No backups found for this file",
-        }
+        raise ToolError("No backups found for this file")
 
     # Select backup
     target_backup: BackupInfo | None = None
@@ -623,22 +604,22 @@ def revert_edit(
                 target_backup = b
                 break
         if target_backup is None:
-            return {
-                "success": False,
-                "reverted_to": None,
-                "current_saved_as": None,
-                "available_backups": [_backup_to_dict(b) for b in backups],
-                "error": f"Backup {backup_id} not found. See available_backups.",
-            }
+            available_ids = ", ".join(b.id for b in backups)
+            raise ToolError(
+                f"Backup {backup_id} not found. Available backups: {available_ids}"
+            )
 
     # At this point target_backup is guaranteed to be set
     assert target_backup is not None
 
-    # Save current state before revert
-    current_backup = create_backup(file_path)
+    try:
+        # Save current state before revert
+        current_backup = create_backup(file_path)
 
-    # Perform revert
-    shutil.copy2(target_backup.path, file_path)
+        # Perform revert
+        shutil.copy2(target_backup.path, file_path)
+    except (PermissionError, OSError) as e:
+        raise ToolError(f"Failed to revert file: {e}") from e
 
     # Get updated backup list
     updated_backups = list_backups(file_path)
@@ -748,6 +729,7 @@ def _collect_entries(
                     ignored_patterns,
                     counter,
                     current_depth + 1,
+                    # Forward slash for display consistency (not a filesystem path)
                     f"{prefix}{entry.name}/",
                 )
                 entries.extend(child_entries)
@@ -887,7 +869,7 @@ def search_directory(
     context_lines: int = 2,
     fuzzy: bool = False,
     regex: bool = False,
-    case_sensitive: bool = True,
+    case_sensitive: bool = False,
     invert: bool = False,
     include_hidden: bool = False,
 ) -> dict:
@@ -908,9 +890,9 @@ def search_directory(
         max_results: Total match cap across all files. Defaults to server
             config (LARGEFILE_MAX_DIR_SEARCH_RESULTS = 100).
         context_lines: Lines of context before/after each match (default 2).
-        fuzzy: Enable fuzzy matching (default False — expensive for many files).
+        fuzzy: Enable fuzzy matching (default False, expensive for many files).
         regex: Enable Python regex matching (default False).
-        case_sensitive: Case-sensitive search (default True, consistent with search_content).
+        case_sensitive: Case-sensitive search (default False).
         invert: Return non-matching lines, like grep -v (default False).
         include_hidden: Include dot-files and dot-dirs (default False).
 

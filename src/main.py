@@ -1,11 +1,9 @@
-import asyncio
-
-from .server import main
+from .server import mcp
 
 
 def cli_main() -> None:
     """CLI entry point."""
-    asyncio.run(main())
+    mcp.run()
 
 
 if __name__ == "__main__":
