@@ -7,6 +7,27 @@ from .config import config
 from .data_models import OutlineItem
 from .exceptions import TreeSitterError
 
+# Node types that represent definitions (functions, classes, methods, etc.)
+DEFINITION_NODE_TYPES: frozenset[str] = frozenset(
+    {
+        "function_definition",
+        "class_definition",
+        "method_definition",
+        "class_declaration",
+        "method_declaration",
+        "constructor_declaration",
+        "struct_item",
+        "struct",
+        "impl_item",
+        "impl",
+        "interface_declaration",
+        "enum_declaration",
+        "annotation_type_declaration",
+        "function_declaration",
+        "arrow_function",
+    }
+)
+
 # Language mappings for supported file extensions
 SUPPORTED_LANGUAGES = {
     ".py": "python",
@@ -623,3 +644,132 @@ def get_semantic_chunk(
         end_line = min(len(lines), target_line + 10)
         chunk_lines = lines[start_line - 1 : end_line]
         return "\n".join(chunk_lines), start_line, end_line
+
+
+def _build_definition_label(node: Any, file_path: str) -> str:
+    """Build a human-readable label for a definition node.
+
+    Args:
+        node: Tree-sitter AST node whose type is in DEFINITION_NODE_TYPES.
+        file_path: Path used to disambiguate language-specific labels.
+
+    Returns:
+        A label string such as ``"def process_data()"``.
+    """
+    node_type = node.type
+    name: str | None = None
+
+    if node_type in ("function_definition", "method_definition"):
+        name = extract_node_name(node, ("identifier", "property_identifier"))
+        return f"def {name}()" if name else "def ()"
+
+    if node_type in ("class_definition", "class_declaration"):
+        name = extract_node_name(node, "identifier")
+        return f"class {name}" if name else "class"
+
+    if node_type == "method_declaration":
+        name = extract_node_name(node, "identifier")
+        return f"{name}()" if name else "method()"
+
+    if node_type == "constructor_declaration":
+        name = extract_node_name(node, "identifier")
+        return f"constructor {name}()" if name else "constructor()"
+
+    if node_type in ("struct_item", "struct"):
+        name = extract_node_name(node, ("type_identifier", "identifier"))
+        return f"struct {name}" if name else "struct"
+
+    if node_type in ("impl_item", "impl"):
+        return "impl block"
+
+    if node_type == "interface_declaration":
+        name = extract_node_name(node, ("type_identifier", "identifier"))
+        return f"interface {name}" if name else "interface"
+
+    if node_type == "enum_declaration":
+        name = extract_node_name(node, "identifier")
+        return f"enum {name}" if name else "enum"
+
+    if node_type == "annotation_type_declaration":
+        name = extract_node_name(node, "identifier")
+        return f"@interface {name}" if name else "@interface"
+
+    if node_type == "function_declaration":
+        name = extract_node_name(node, "identifier")
+        ext = Path(file_path).suffix.lower()
+        if ext == ".go":
+            return f"func {name}()" if name else "func()"
+        return f"function {name}()" if name else "function()"
+
+    if node_type == "arrow_function":
+        # Name comes from a parent variable_declarator node
+        parent = node.parent
+        if parent and parent.type == "variable_declarator":
+            name = extract_node_name(parent, "identifier")
+        return f"const {name}()" if name else "const ()"
+
+    return str(node_type)
+
+
+def find_enclosing_definition(
+    file_path: str,
+    content: str,
+    target_line: int,
+    depth: int = 1,
+) -> tuple[str, int, int, str] | None:
+    """Walk up the AST from a target line to find the nearest enclosing definition.
+
+    Args:
+        file_path: Path to the file (used for language detection).
+        content: Full text content of the file.
+        target_line: 1-indexed line number to start from.
+        depth: How many definition levels to walk up. ``depth=1`` returns the
+            innermost enclosing definition; ``depth=2`` returns the next one
+            up (e.g. the class containing a method). If depth exceeds available
+            nesting, the outermost definition found is returned.
+
+    Returns:
+        ``(content_text, start_line, end_line, symbol_label)`` where lines are
+        1-indexed, or ``None`` if no enclosing definition is found.
+    """
+    try:
+        tree = parse_file_content(file_path, content)
+        if tree is None:
+            return None
+
+        root_node = tree.root_node
+        # find_node_at_line uses 0-indexed lines
+        current_node = find_node_at_line(root_node, target_line - 1)
+        if current_node is None:
+            return None
+
+        # Walk up to find definition nodes
+        found_node: Any = None
+        definitions_found = 0
+        node = current_node
+
+        while node is not None and node != root_node:
+            if node.type in DEFINITION_NODE_TYPES:
+                definitions_found += 1
+                found_node = node
+                if definitions_found >= depth:
+                    break
+            node = node.parent
+
+        if found_node is None:
+            return None
+
+        # Extract content text
+        start_line_0 = found_node.start_point[0]
+        end_line_0 = found_node.end_point[0]
+        lines = content.splitlines()
+        content_text = "\n".join(lines[start_line_0 : end_line_0 + 1])
+
+        # Build label
+        symbol_label = _build_definition_label(found_node, file_path)
+
+        # Convert to 1-indexed
+        return (content_text, start_line_0 + 1, end_line_0 + 1, symbol_label)
+
+    except Exception:
+        return None
