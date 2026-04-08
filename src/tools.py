@@ -10,6 +10,7 @@ from typing import Any
 
 from mcp.server.fastmcp.exceptions import ToolError
 
+from .change_marker import mark_outline, parse_changed_lines
 from .config import config
 from .data_models import (
     BackupInfo,
@@ -20,6 +21,7 @@ from .data_models import (
     DirectorySearchResult,
     FileOverview,
     LongLineStats,
+    OutlineItem,
     SearchResult,
 )
 from .editor import batch_edit_content
@@ -81,7 +83,10 @@ def handle_tool_errors(func: Callable) -> Callable:
 
 
 @handle_tool_errors
-def get_overview(absolute_file_path: str) -> dict:
+def get_overview(
+    absolute_file_path: str,
+    changed_lines: list[list[int | str]] | None = None,
+) -> dict:
     """Get file structure with basic analysis using auto-detected encoding.
 
     Provides file metadata, line count, and basic structure analysis.
@@ -105,6 +110,8 @@ def get_overview(absolute_file_path: str) -> dict:
     is_binary, binary_hint = is_binary_file(canonical_path)
 
     if is_binary:
+        if changed_lines is not None:
+            raise ToolError("changed_lines not supported for binary files")
         # Return early for binary files
         long_lines_stats = LongLineStats(
             has_long_lines=False,
@@ -161,6 +168,16 @@ def get_overview(absolute_file_path: str) -> dict:
 
     # Generate search hints based on file type
     file_ext = Path(canonical_path).suffix.lower()
+
+    # Mark changed symbols if changed_lines provided
+    changed_count = 0
+    if changed_lines is not None:
+        try:
+            parsed_ranges = parse_changed_lines(changed_lines)
+        except ValueError as e:
+            raise ToolError(f"Invalid changed_lines: {e}") from e
+        outline, changed_count = mark_outline(outline, parsed_ranges)
+
     if file_ext == ".py":
         search_hints = ["def ", "class ", "import ", "from "]
     elif file_ext in [".js", ".ts", ".jsx", ".tsx"]:
@@ -198,17 +215,26 @@ def get_overview(absolute_file_path: str) -> dict:
             "threshold": overview.long_lines.threshold,
         },
         "outline": [
-            {
-                "name": item.name,
-                "type": item.type,
-                "line_number": item.line_number,
-                "end_line": item.end_line,
-                "line_count": item.line_count,
-            }
+            _serialize_outline_item(item, include_changes=changed_lines is not None)
             for item in overview.outline
         ],
         "search_hints": overview.search_hints,
+        **({"changed_symbols": changed_count} if changed_lines is not None else {}),
     }
+
+
+def _serialize_outline_item(item: OutlineItem, include_changes: bool) -> dict:
+    """Serialize an OutlineItem to a flat dict, optionally including changes."""
+    d: dict[str, Any] = {
+        "name": item.name,
+        "type": item.type,
+        "line_number": item.line_number,
+        "end_line": item.end_line,
+        "line_count": item.line_count,
+    }
+    if include_changes:
+        d["changes"] = item.changes
+    return d
 
 
 @handle_tool_errors
