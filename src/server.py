@@ -179,6 +179,50 @@ def read_content(
 
 
 @mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False),
+    structured_output=False,
+)
+def read_enclosing(
+    absolute_file_path: Annotated[
+        str,
+        Field(description="Absolute path to target file"),
+    ],
+    line: Annotated[
+        int,
+        Field(description="Line number to find the enclosing function/class for", ge=1),
+    ],
+    depth: Annotated[
+        int,
+        Field(
+            description="Nesting depth: 1 = innermost definition, 2 = parent (e.g., class containing a method)",
+            ge=1,
+        ),
+    ] = 1,
+    context_lines: Annotated[
+        int,
+        Field(
+            description="Lines of context for fallback window when no enclosing definition is found",
+            ge=1,
+        ),
+    ] = 40,
+) -> dict:
+    """Find the enclosing function or class for a specific line number.
+
+    Given a file and line number, returns the complete enclosing definition
+    (function, method, class, struct, etc.) containing that line. Use depth=2
+    to get the parent definition (e.g., the class containing a method).
+    Falls back to a centered context window for unsupported languages or
+    top-level code.
+    """
+    return tools.read_enclosing(  # type: ignore[no-any-return]
+        absolute_file_path,
+        line=line,
+        depth=depth,
+        context_lines=context_lines,
+    )
+
+
+@mcp.tool(
     annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True),
     structured_output=False,
 )

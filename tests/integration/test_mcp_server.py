@@ -11,6 +11,7 @@ EXPECTED_TOOLS = {
     "get_overview",
     "search_content",
     "read_content",
+    "read_enclosing",
     "edit_content",
     "revert_edit",
     "list_directory",
@@ -21,6 +22,7 @@ READ_ONLY_TOOLS = {
     "get_overview",
     "search_content",
     "read_content",
+    "read_enclosing",
     "list_directory",
     "search_directory",
 }
@@ -37,7 +39,7 @@ class TestMCPServer:
         assert mcp.name == "largefile"
 
     def test_all_tools_registered(self):
-        """All 7 tools are registered."""
+        """All 8 tools are registered."""
         tools = mcp._tool_manager.list_tools()
         tool_names = {t.name for t in tools}
         assert tool_names == EXPECTED_TOOLS

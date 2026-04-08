@@ -42,6 +42,7 @@ from .file_access import (
 from .search_engine import search_file
 from .tree_parser import (
     extract_semantic_context,
+    find_enclosing_definition,
     generate_outline,
     get_semantic_chunk,
     parse_file_content,
@@ -506,6 +507,76 @@ def read_content(
     if warnings:
         result["warnings"] = warnings
     return result
+
+
+@handle_tool_errors
+def read_enclosing(
+    absolute_file_path: str,
+    line: int,
+    depth: int = 1,
+    context_lines: int = 40,
+) -> dict:
+    """Find the enclosing function or class for a specific line number.
+
+    Given a file and line number, returns the complete enclosing definition
+    (function, method, class, struct, etc.) containing that line. Use depth=2
+    to get the parent definition (e.g., the class containing a method).
+    Falls back to a centered context window for unsupported languages or
+    top-level code.
+
+    Parameters:
+    - absolute_file_path: Absolute path to the file
+    - line: Line number to find the enclosing definition for (1-indexed)
+    - depth: Nesting depth: 1 = innermost, 2 = parent definition
+    - context_lines: Lines of context for fallback window
+
+    Returns:
+    - Content of the enclosing definition with metadata
+    """
+    canonical_path = normalize_path(absolute_file_path)
+
+    # Validate parameters
+    if line < 1:
+        raise ToolError("line must be >= 1.")
+    if depth < 1:
+        raise ToolError("depth must be >= 1.")
+    if context_lines < 1:
+        raise ToolError("context_lines must be >= 1.")
+
+    lines = read_file_lines(canonical_path)
+    content = read_file_content(canonical_path)
+    total_lines = len(lines)
+
+    if line > total_lines:
+        raise ToolError(f"line {line} is beyond end of file ({total_lines} lines).")
+
+    result = find_enclosing_definition(canonical_path, content, line, depth)
+
+    if result is not None:
+        content_text, start_line, end_line, symbol_label = result
+        return {
+            "content": content_text,
+            "start_line": start_line,
+            "end_line": end_line,
+            "lines_returned": end_line - start_line + 1,
+            "total_lines": total_lines,
+            "mode": "enclosing",
+            "enclosing_symbol": symbol_label,
+        }
+
+    # Fallback: centered context window
+    start = max(1, line - context_lines // 2)
+    end = min(total_lines, start + context_lines - 1)
+    content_text = "".join(lines[start - 1 : end])
+    return {
+        "content": content_text,
+        "start_line": start,
+        "end_line": end,
+        "lines_returned": end - start + 1,
+        "total_lines": total_lines,
+        "mode": "context_window",
+        "enclosing_symbol": None,
+    }
 
 
 def _change_result_to_dict(r: ChangeResult) -> dict:
