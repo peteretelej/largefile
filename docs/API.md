@@ -27,12 +27,14 @@ Analyze file structure with semantic outline and search hints.
 **Signature:**
 ```python
 def get_overview(
-    absolute_file_path: str
+    absolute_file_path: str,
+    changed_lines: list[list[int | str]] | None = None,
 ) -> dict
 ```
 
 **Parameters:**
 - `absolute_file_path`: Absolute path to the file (required)
+- `changed_lines` (optional): List of changed line ranges from a diff. Each entry is `[start, end]` or `[start, end, type]` where `type` is `"added"`, `"modified"`, or `"removed"`. Defaults to `"modified"` when type is omitted. Example: `[[10, 15, "added"], [45, 52]]`.
 
 **Returns:** Dictionary with:
 - `line_count`: Total lines in file
@@ -43,6 +45,9 @@ def get_overview(
 - `long_lines`: Object with detailed long line statistics
 - `outline`: Hierarchical structure via Tree-sitter (if supported)
 - `search_hints`: Suggested search patterns for exploration
+- `changed_symbols` (int, when `changed_lines` provided): Number of outline symbols that overlap with changed lines
+
+When `changed_lines` is provided, each outline item gains a `changes` field: `"added"`, `"modified"`, `"removed"`, or `null`.
 
 **Long Lines Object:**
 ```python
@@ -69,6 +74,25 @@ else:
 # Check for long lines
 if overview["long_lines"]["has_long_lines"]:
     print(f"Warning: {overview['long_lines']['count']} lines exceed {overview['long_lines']['threshold']} chars")
+```
+
+**Diff-Aware Overview Example:**
+```python
+# Pass changed line ranges from a diff to highlight affected symbols
+overview = get_overview(
+    "/path/to/src/auth.py",
+    changed_lines=[[10, 15, "added"], [45, 52, "modified"]]
+)
+print(f"{overview['changed_symbols']} symbols affected by changes")
+
+# Each outline item includes a "changes" field when changed_lines is provided
+for item in overview["outline"]:
+    if item["changes"]:
+        print(f"{item['name']} ({item['type']}): {item['changes']}")
+# Output:
+# 2 symbols affected by changes
+# create_session (function): added
+# validate_token (function): modified
 ```
 
 ### search_content

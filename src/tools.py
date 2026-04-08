@@ -93,15 +93,26 @@ def get_overview(
     Detects binary files and long lines, returns search hints for efficient
     exploration.
 
+    Optionally accepts changed_lines to mark which symbols in the outline
+    contain changes from a diff, enabling diff-aware code review.
+
     CRITICAL: You must use an absolute file path - relative paths will fail.
     DO NOT attempt to read large files directly as they exceed context limits.
 
     Parameters:
     - absolute_file_path: Absolute path to the file
+    - changed_lines: Optional list of changed line ranges from a diff.
+      Each entry is [start, end] or [start, end, type] where type is
+      "added", "modified", or "removed" (defaults to "modified").
+      Example: [[10, 15, "added"], [45, 52, "modified"]] or [[10, 15]].
+      Available from diffchunk list_chunks file_details output.
 
     Returns:
     - FileOverview with line count, file size, detected encoding, binary detection,
       long line statistics, and search hints
+    - When changed_lines is provided, each outline item includes a "changes" field
+      ("added", "modified", "removed", or null) and the response includes
+      "changed_symbols" count
     """
     canonical_path = normalize_path(absolute_file_path)
     file_info = get_file_info(canonical_path)
