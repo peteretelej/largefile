@@ -32,6 +32,16 @@ def get_overview(
             description="Absolute path to target file (e.g., /path/to/large_module.py)"
         ),
     ],
+    changed_lines: Annotated[
+        list[list[int | str]] | None,
+        Field(
+            description="Optional list of changed line ranges from a diff. "
+            "Each entry is [start, end] or [start, end, type] where type is "
+            '"added", "modified", or "removed". '
+            'Example: [[10, 15, "added"], [45, 52]]. '
+            "Available from diffchunk list_chunks file_details output."
+        ),
+    ] = None,
 ) -> dict:
     """Get file structure, size, and semantic outline for large files (code, logs, data).
 
@@ -41,7 +51,7 @@ def get_overview(
     files, uses Tree-sitter to extract functions, classes, and structure. Does
     NOT return file content - use read_content or search_content for that.
     """
-    return tools.get_overview(absolute_file_path)  # type: ignore[no-any-return]
+    return tools.get_overview(absolute_file_path, changed_lines=changed_lines)  # type: ignore[no-any-return]
 
 
 @mcp.tool(
