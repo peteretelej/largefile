@@ -4,6 +4,7 @@ Test core tree-sitter functionality with graceful fallback handling.
 Uses table-driven tests for comprehensive coverage.
 """
 
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -481,13 +482,13 @@ class TestJavaSupport:
 class TestFindEnclosingDefinition:
     """Tests for find_enclosing_definition()."""
 
-    PYTHON_FIXTURE = "tests/test_data/python/nested_class.py"
-    JS_FIXTURE = "tests/test_data/javascript/nested_arrow.js"
+    _TEST_DATA_DIR = str(Path(__file__).resolve().parents[1] / "test_data")
+    PYTHON_FIXTURE = f"{_TEST_DATA_DIR}/python/nested_class.py"
+    JS_FIXTURE = f"{_TEST_DATA_DIR}/javascript/nested_arrow.js"
 
     @staticmethod
     def _read_fixture(path: str) -> str:
-        with open(path) as f:
-            return f.read()
+        return Path(path).read_text(encoding="utf-8")
 
     def test_python_line_inside_function_returns_function(self):
         """Line inside a standalone function returns that function."""

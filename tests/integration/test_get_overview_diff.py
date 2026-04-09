@@ -112,14 +112,17 @@ class TestGetOverviewDiff:
         """Non-tree-sitter files still get their simple outline items marked."""
         txt_file = tmp_path / "notes.txt"
         txt_file.write_text(
-            "# Section One\n"  # line 1
+            "TODO: Section One\n"  # line 1
             "some text\n"  # line 2
             "\n"  # line 3
-            "# Section Two\n"  # line 4
+            "FIXME: Section Two\n"  # line 4
             "more text\n"  # line 5
         )
 
         result = get_overview(str(txt_file), changed_lines=[[1, 2, "modified"]])
+
+        # Outline must be non-empty so the loop below is not vacuous
+        assert len(result["outline"]) > 0
 
         # changed_symbols should exist in the response
         assert "changed_symbols" in result
@@ -127,6 +130,9 @@ class TestGetOverviewDiff:
         # All outline items should have the changes key
         for item in result["outline"]:
             assert "changes" in item
+
+        # At least one item should actually be marked as changed
+        assert any(item["changes"] is not None for item in result["outline"])
 
     # ------------------------------------------------------------------ #
     # Error handling: invalid changed_lines

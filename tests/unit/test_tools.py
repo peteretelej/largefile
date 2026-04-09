@@ -548,3 +548,15 @@ class TestReadEnclosing:
         assert result_large["mode"] == "context_window"
         assert result_small["lines_returned"] <= 2
         assert result_large["lines_returned"] >= result_small["lines_returned"]
+
+    def test_context_window_backfills_near_eof(self, yaml_file):
+        """Near EOF, context window shifts start backward to fill requested size."""
+        # yaml_file has 5 lines; requesting line=5 with context_lines=4
+        # Without backfill: start=4, end=5, window=2
+        # With backfill: start=2, end=5, window=4
+        result = read_enclosing(yaml_file, line=5, context_lines=4)
+
+        assert result["mode"] == "context_window"
+        assert result["lines_returned"] == 4
+        assert result["end_line"] == 5
+        assert result["start_line"] == 2

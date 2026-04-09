@@ -567,6 +567,9 @@ def read_enclosing(
     # Fallback: centered context window
     start = max(1, line - context_lines // 2)
     end = min(total_lines, start + context_lines - 1)
+    # Backfill: shift start backward when clipped at EOF
+    if end - start + 1 < context_lines:
+        start = max(1, end - context_lines + 1)
     content_text = "".join(lines[start - 1 : end])
     return {
         "content": content_text,
