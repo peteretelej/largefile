@@ -206,6 +206,7 @@ class FileOverview:
     has_long_lines: bool  # >1000 chars (triggers truncation)
     outline: List[OutlineItem]  # Hierarchical via Tree-sitter
     search_hints: List[str]  # Common patterns for exploration
+    changed_symbols: int = 0  # Count of symbols overlapping changed lines
 
 @dataclass
 class OutlineItem:
@@ -215,6 +216,7 @@ class OutlineItem:
     end_line: int
     children: List[OutlineItem]  # Nested structure
     line_count: int
+    changes: str | None = None  # "added", "modified", "removed", or None
 
 @dataclass
 class SearchResult:

@@ -32,6 +32,16 @@ def get_overview(
             description="Absolute path to target file (e.g., /path/to/large_module.py)"
         ),
     ],
+    changed_lines: Annotated[
+        list[list[int | str]] | None,
+        Field(
+            description="Optional list of changed line ranges from a diff. "
+            "Each entry is [start, end] or [start, end, type] where type is "
+            '"added", "modified", or "removed". '
+            'Example: [[10, 15, "added"], [45, 52]]. '
+            "Available from diffchunk list_chunks file_details output."
+        ),
+    ] = None,
 ) -> dict:
     """Get file structure, size, and semantic outline for large files (code, logs, data).
 
@@ -41,7 +51,7 @@ def get_overview(
     files, uses Tree-sitter to extract functions, classes, and structure. Does
     NOT return file content - use read_content or search_content for that.
     """
-    return tools.get_overview(absolute_file_path)  # type: ignore[no-any-return]
+    return tools.get_overview(absolute_file_path, changed_lines=changed_lines)  # type: ignore[no-any-return]
 
 
 @mcp.tool(
@@ -165,6 +175,50 @@ def read_content(
         limit=limit,
         pattern=pattern,
         mode=mode,
+    )
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=True, destructiveHint=False),
+    structured_output=False,
+)
+def read_enclosing(
+    absolute_file_path: Annotated[
+        str,
+        Field(description="Absolute path to target file"),
+    ],
+    line: Annotated[
+        int,
+        Field(description="Line number to find the enclosing function/class for", ge=1),
+    ],
+    depth: Annotated[
+        int,
+        Field(
+            description="Nesting depth: 1 = innermost definition, 2 = parent (e.g., class containing a method)",
+            ge=1,
+        ),
+    ] = 1,
+    context_lines: Annotated[
+        int,
+        Field(
+            description="Lines of context for fallback window when no enclosing definition is found",
+            ge=1,
+        ),
+    ] = 40,
+) -> dict:
+    """Find the enclosing function or class for a specific line number.
+
+    Given a file and line number, returns the complete enclosing definition
+    (function, method, class, struct, etc.) containing that line. Use depth=2
+    to get the parent definition (e.g., the class containing a method).
+    Falls back to a centered context window for unsupported languages or
+    top-level code.
+    """
+    return tools.read_enclosing(  # type: ignore[no-any-return]
+        absolute_file_path,
+        line=line,
+        depth=depth,
+        context_lines=context_lines,
     )
 
 

@@ -516,6 +516,47 @@ if input("Apply changes? (y/n): ") == "y":
 # revert_edit("/path/to/app.py")  # Instant recovery
 ```
 
+## Diff-Aware Code Review
+
+### Reviewing Changes with Targeted Symbol Navigation
+
+**AI Question:** *"I have a diff patch file. Can you review just the functions that changed in src/auth.py?"*
+
+**AI Assistant workflow:**
+1. Use `diffchunk list_chunks` to get file details with changed line ranges
+2. Pass those ranges as `changed_lines` to `get_overview`
+3. Focus review on symbols with non-null `changes`
+
+```python
+# Step 1: Get diff overview to identify changed files and line ranges
+chunks = list_chunks("/path/to/diff.patch")
+# file_details shows: src/auth.py has changes at lines 10-15, 45-52
+
+# Step 2: Get diff-aware overview
+overview = get_overview(
+    "/path/to/src/auth.py",
+    changed_lines=[[10, 15, "added"], [45, 52, "modified"]]
+)
+# Response includes:
+# {
+#   "changed_symbols": 2,
+#   "outline": [
+#     {"name": "validate_token", "type": "function", "line_number": 42,
+#      "end_line": 68, "changes": "modified"},
+#     {"name": "create_session", "type": "function", "line_number": 8,
+#      "end_line": 20, "changes": "added"},
+#     {"name": "logout", "type": "function", "line_number": 70,
+#      "end_line": 85, "changes": null}
+#   ]
+# }
+
+# Step 3: Focus review on changed functions
+changed = [s for s in overview["outline"] if s["changes"]]
+for symbol in changed:
+    code = read_content("/path/to/src/auth.py", offset=symbol["line_number"],
+                        limit=symbol["line_count"])
+```
+
 ---
 
 These examples demonstrate how AI assistants use the Largefile MCP Server to handle real-world scenarios with large files, from code analysis to refactoring to data processing, with robust error recovery and batch operations.

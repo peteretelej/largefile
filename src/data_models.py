@@ -62,6 +62,7 @@ class FileOverview:
     binary_hint: str | None
     outline: list["OutlineItem"]
     search_hints: list[str]
+    changed_symbols: int = 0
 
 
 @dataclass
@@ -72,6 +73,7 @@ class OutlineItem:
     end_line: int
     children: list["OutlineItem"]
     line_count: int
+    changes: str | None = None  # "added" | "modified" | "removed" | None
 
 
 @dataclass

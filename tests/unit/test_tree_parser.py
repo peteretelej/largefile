@@ -4,15 +4,18 @@ Test core tree-sitter functionality with graceful fallback handling.
 Uses table-driven tests for comprehensive coverage.
 """
 
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from src.tree_parser import (
+    DEFINITION_NODE_TYPES,
     SUPPORTED_LANGUAGES,
     create_outline_item_from_node,
     extract_node_name,
     extract_semantic_context,
+    find_enclosing_definition,
     generate_outline,
     generate_simple_outline,
     get_language_parser,
@@ -474,3 +477,112 @@ class TestJavaSupport:
             # When tree-sitter is active, methods must also be in the flat list
             method_items = [item for item in outline if item.type == "method"]
             assert len(method_items) >= 1
+
+
+class TestFindEnclosingDefinition:
+    """Tests for find_enclosing_definition()."""
+
+    _TEST_DATA_DIR = str(Path(__file__).resolve().parents[1] / "test_data")
+    PYTHON_FIXTURE = f"{_TEST_DATA_DIR}/python/nested_class.py"
+    JS_FIXTURE = f"{_TEST_DATA_DIR}/javascript/nested_arrow.js"
+
+    @staticmethod
+    def _read_fixture(path: str) -> str:
+        return Path(path).read_text(encoding="utf-8")
+
+    def test_python_line_inside_function_returns_function(self):
+        """Line inside a standalone function returns that function."""
+        content = self._read_fixture(self.PYTHON_FIXTURE)
+        result = find_enclosing_definition(self.PYTHON_FIXTURE, content, 6)
+        assert result is not None
+        text, start, end, label = result
+        assert "helper" in label
+        assert "def" in label
+        assert start <= 6 <= end
+        assert "return 42" in text
+
+    def test_python_line_inside_method_returns_method(self):
+        """Line inside a class method returns the method."""
+        content = self._read_fixture(self.PYTHON_FIXTURE)
+        # Line 16: inside process() method - "result.append(item * 2)"
+        result = find_enclosing_definition(self.PYTHON_FIXTURE, content, 16)
+        assert result is not None
+        text, start, end, label = result
+        assert "process" in label
+        assert "def" in label
+        assert start <= 16 <= end
+
+    def test_python_depth2_on_method_returns_class(self):
+        """depth=2 on a line inside a method returns the enclosing class."""
+        content = self._read_fixture(self.PYTHON_FIXTURE)
+        # Line 16: inside process() method
+        result = find_enclosing_definition(self.PYTHON_FIXTURE, content, 16, depth=2)
+        assert result is not None
+        text, start, end, label = result
+        assert "class" in label.lower()
+        assert "DataProcessor" in label
+
+    def test_js_arrow_function_returns_correct_name(self):
+        """Arrow function returns correct name from parent variable_declarator."""
+        content = self._read_fixture(self.JS_FIXTURE)
+        # Line 21: inside handleRequest arrow function - "const body = req.body;"
+        result = find_enclosing_definition(self.JS_FIXTURE, content, 21)
+        assert result is not None
+        text, start, end, label = result
+        assert "handleRequest" in label
+        assert "const" in label
+
+    def test_js_class_method_returns_method(self):
+        """Line inside a JS class method returns the method."""
+        content = self._read_fixture(self.JS_FIXTURE)
+        # Line 12: inside on() method - "if (!this.listeners[event])"
+        result = find_enclosing_definition(self.JS_FIXTURE, content, 12)
+        assert result is not None
+        text, start, end, label = result
+        assert "on" in label
+        assert start <= 12 <= end
+
+    def test_top_level_returns_none(self):
+        """Line at top level (no enclosing definition) returns None."""
+        content = self._read_fixture(self.PYTHON_FIXTURE)
+        # Last line: "x = 1" - top-level assignment
+        lines = content.splitlines()
+        last_line = len(lines)
+        result = find_enclosing_definition(self.PYTHON_FIXTURE, content, last_line)
+        assert result is None
+
+    def test_definition_line_returns_that_function(self):
+        """Line on a function's own definition line returns that function."""
+        content = self._read_fixture(self.PYTHON_FIXTURE)
+        # Line 4: "def helper():" - the definition line itself
+        result = find_enclosing_definition(self.PYTHON_FIXTURE, content, 4)
+        assert result is not None
+        text, start, end, label = result
+        assert "helper" in label
+        assert start == 4
+
+    def test_depth_exceeding_nesting_returns_outermost(self):
+        """Depth exceeding nesting returns outermost definition, not None."""
+        content = self._read_fixture(self.PYTHON_FIXTURE)
+        # Line 16: inside process() method (depth 2 = class, depth 3 = nothing more)
+        result = find_enclosing_definition(self.PYTHON_FIXTURE, content, 16, depth=10)
+        assert result is not None
+        text, start, end, label = result
+        # Should return the outermost definition found (the class)
+        assert "class" in label.lower() or "DataProcessor" in label
+
+    def test_unsupported_language_returns_none(self):
+        """Unsupported file type returns None without raising."""
+        result = find_enclosing_definition("test.xyz", "some content", 1)
+        assert result is None
+
+    def test_definition_node_types_is_frozenset(self):
+        """DEFINITION_NODE_TYPES is a frozenset with expected entries."""
+        assert isinstance(DEFINITION_NODE_TYPES, frozenset)
+        assert "function_definition" in DEFINITION_NODE_TYPES
+        assert "class_definition" in DEFINITION_NODE_TYPES
+        assert "arrow_function" in DEFINITION_NODE_TYPES
+        assert "function_declaration" in DEFINITION_NODE_TYPES
+        # Should NOT include overly broad types
+        assert "export_statement" not in DEFINITION_NODE_TYPES
+        assert "lexical_declaration" not in DEFINITION_NODE_TYPES

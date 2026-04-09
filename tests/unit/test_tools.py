@@ -16,6 +16,7 @@ from src.tools import (
     edit_content,
     get_overview,
     read_content,
+    read_enclosing,
     search_content,
 )
 
@@ -437,3 +438,125 @@ class TestSearchContentEdgeCases:
             assert result["total_matches"] > 0
             # Context should fall back to line number
             assert "Line" in result["results"][0]["semantic_context"]
+
+
+class TestReadEnclosing:
+    """Test read_enclosing tool function."""
+
+    @pytest.fixture
+    def python_file(self, tmp_path):
+        """Create a Python file with nested class and method."""
+        content = (
+            "import os\n"
+            "\n"
+            "TOP_LEVEL = 42\n"
+            "\n"
+            "class MyClass:\n"
+            "    def method_one(self):\n"
+            "        x = 1\n"
+            "        y = 2\n"
+            "        return x + y\n"
+            "\n"
+            "    def method_two(self):\n"
+            "        return 'hello'\n"
+            "\n"
+            "def standalone():\n"
+            "    pass\n"
+        )
+        file = tmp_path / "sample.py"
+        file.write_text(content)
+        return str(file)
+
+    @pytest.fixture
+    def yaml_file(self, tmp_path):
+        """Create a YAML file (not supported by tree-sitter)."""
+        content = "key: value\nlist:\n  - item1\n  - item2\n  - item3\n"
+        file = tmp_path / "config.yaml"
+        file.write_text(content)
+        return str(file)
+
+    def test_enclosing_read_python_function(self, python_file):
+        """Successful enclosing read on Python file returns enclosing mode."""
+        # Line 7 is inside method_one
+        result = read_enclosing(python_file, line=7)
+
+        assert result["mode"] == "enclosing"
+        assert result["enclosing_symbol"] is not None
+        assert isinstance(result["enclosing_symbol"], str)
+        assert len(result["enclosing_symbol"]) > 0
+        assert isinstance(result["start_line"], int)
+        assert isinstance(result["end_line"], int)
+        assert result["start_line"] <= 7 <= result["end_line"]
+        assert len(result["content"]) > 0
+        assert result["lines_returned"] == result["end_line"] - result["start_line"] + 1
+
+    def test_fallback_non_treesitter_file(self, yaml_file):
+        """Fallback to context window for non-tree-sitter file."""
+        result = read_enclosing(yaml_file, line=2)
+
+        assert result["mode"] == "context_window"
+        assert result["enclosing_symbol"] is None
+        assert len(result["content"]) > 0
+
+    def test_fallback_toplevel_code(self, python_file):
+        """Fallback to context window for top-level code."""
+        # Line 3 is TOP_LEVEL = 42, not inside any function or class
+        result = read_enclosing(python_file, line=3)
+
+        assert result["mode"] == "context_window"
+        assert result["enclosing_symbol"] is None
+
+    @pytest.mark.parametrize(
+        "line,error_msg",
+        [
+            (0, "line must be >= 1"),
+            (-1, "line must be >= 1"),
+        ],
+    )
+    def test_invalid_line_numbers(self, python_file, line, error_msg):
+        """Invalid line numbers raise ToolError."""
+        with pytest.raises(ToolError, match=error_msg):
+            read_enclosing(python_file, line=line)
+
+    def test_line_beyond_file(self, python_file):
+        """Line beyond file length raises ToolError."""
+        with pytest.raises(ToolError, match="beyond end of file"):
+            read_enclosing(python_file, line=9999)
+
+    def test_depth_2_returns_class(self, python_file):
+        """depth=2 on method inside class returns the class."""
+        # Line 7 is inside method_one which is inside MyClass
+        result = read_enclosing(python_file, line=7, depth=2)
+
+        assert result["mode"] == "enclosing"
+        assert result["enclosing_symbol"] is not None
+        # The enclosing symbol at depth=2 should be the class
+        assert (
+            "class" in result["enclosing_symbol"].lower()
+            or "MyClass" in result["enclosing_symbol"]
+        )
+        # The range should encompass the entire class
+        assert result["start_line"] <= 5  # class starts at line 5
+        assert result["end_line"] >= 12  # class ends at line 12
+
+    def test_context_lines_parameter(self, yaml_file):
+        """context_lines parameter adjusts fallback window size."""
+        result_small = read_enclosing(yaml_file, line=3, context_lines=2)
+        result_large = read_enclosing(yaml_file, line=3, context_lines=10)
+
+        assert result_small["mode"] == "context_window"
+        assert result_large["mode"] == "context_window"
+        assert result_small["lines_returned"] <= 2
+        assert result_large["lines_returned"] >= result_small["lines_returned"]
+
+    def test_context_window_backfills_near_eof(self, yaml_file):
+        """Near EOF, context window shifts start backward to fill requested size."""
+        # yaml_file has 5 lines; requesting line=5 with context_lines=4
+        # Without backfill: start=4, end=5, window=2
+        # With backfill: start=2, end=5, window=4
+        result = read_enclosing(yaml_file, line=5, context_lines=4)
+
+        assert result["mode"] == "context_window"
+        assert result["lines_returned"] == 4
+        assert result["end_line"] == 5
+        assert result["start_line"] == 2

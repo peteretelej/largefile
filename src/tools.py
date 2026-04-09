@@ -10,6 +10,7 @@ from typing import Any
 
 from mcp.server.fastmcp.exceptions import ToolError
 
+from .change_marker import mark_outline, parse_changed_lines
 from .config import config
 from .data_models import (
     BackupInfo,
@@ -20,6 +21,7 @@ from .data_models import (
     DirectorySearchResult,
     FileOverview,
     LongLineStats,
+    OutlineItem,
     SearchResult,
 )
 from .editor import batch_edit_content
@@ -40,6 +42,7 @@ from .file_access import (
 from .search_engine import search_file
 from .tree_parser import (
     extract_semantic_context,
+    find_enclosing_definition,
     generate_outline,
     get_semantic_chunk,
     parse_file_content,
@@ -81,22 +84,36 @@ def handle_tool_errors(func: Callable) -> Callable:
 
 
 @handle_tool_errors
-def get_overview(absolute_file_path: str) -> dict:
+def get_overview(
+    absolute_file_path: str,
+    changed_lines: list[list[int | str]] | None = None,
+) -> dict:
     """Get file structure with basic analysis using auto-detected encoding.
 
     Provides file metadata, line count, and basic structure analysis.
     Detects binary files and long lines, returns search hints for efficient
     exploration.
 
+    Optionally accepts changed_lines to mark which symbols in the outline
+    contain changes from a diff, enabling diff-aware code review.
+
     CRITICAL: You must use an absolute file path - relative paths will fail.
     DO NOT attempt to read large files directly as they exceed context limits.
 
     Parameters:
     - absolute_file_path: Absolute path to the file
+    - changed_lines: Optional list of changed line ranges from a diff.
+      Each entry is [start, end] or [start, end, type] where type is
+      "added", "modified", or "removed" (defaults to "modified").
+      Example: [[10, 15, "added"], [45, 52, "modified"]] or [[10, 15]].
+      Available from diffchunk list_chunks file_details output.
 
     Returns:
     - FileOverview with line count, file size, detected encoding, binary detection,
       long line statistics, and search hints
+    - When changed_lines is provided, each outline item includes a "changes" field
+      ("added", "modified", "removed", or null) and the response includes
+      "changed_symbols" count
     """
     canonical_path = normalize_path(absolute_file_path)
     file_info = get_file_info(canonical_path)
@@ -105,6 +122,8 @@ def get_overview(absolute_file_path: str) -> dict:
     is_binary, binary_hint = is_binary_file(canonical_path)
 
     if is_binary:
+        if changed_lines is not None:
+            raise ToolError("changed_lines not supported for binary files")
         # Return early for binary files
         long_lines_stats = LongLineStats(
             has_long_lines=False,
@@ -161,6 +180,16 @@ def get_overview(absolute_file_path: str) -> dict:
 
     # Generate search hints based on file type
     file_ext = Path(canonical_path).suffix.lower()
+
+    # Mark changed symbols if changed_lines provided
+    changed_count = 0
+    if changed_lines is not None:
+        try:
+            parsed_ranges = parse_changed_lines(changed_lines)
+        except ValueError as e:
+            raise ToolError(f"Invalid changed_lines: {e}") from e
+        outline, changed_count = mark_outline(outline, parsed_ranges)
+
     if file_ext == ".py":
         search_hints = ["def ", "class ", "import ", "from "]
     elif file_ext in [".js", ".ts", ".jsx", ".tsx"]:
@@ -198,17 +227,26 @@ def get_overview(absolute_file_path: str) -> dict:
             "threshold": overview.long_lines.threshold,
         },
         "outline": [
-            {
-                "name": item.name,
-                "type": item.type,
-                "line_number": item.line_number,
-                "end_line": item.end_line,
-                "line_count": item.line_count,
-            }
+            _serialize_outline_item(item, include_changes=changed_lines is not None)
             for item in overview.outline
         ],
         "search_hints": overview.search_hints,
+        **({"changed_symbols": changed_count} if changed_lines is not None else {}),
     }
+
+
+def _serialize_outline_item(item: OutlineItem, include_changes: bool) -> dict:
+    """Serialize an OutlineItem to a flat dict, optionally including changes."""
+    d: dict[str, Any] = {
+        "name": item.name,
+        "type": item.type,
+        "line_number": item.line_number,
+        "end_line": item.end_line,
+        "line_count": item.line_count,
+    }
+    if include_changes:
+        d["changes"] = item.changes
+    return d
 
 
 @handle_tool_errors
@@ -469,6 +507,79 @@ def read_content(
     if warnings:
         result["warnings"] = warnings
     return result
+
+
+@handle_tool_errors
+def read_enclosing(
+    absolute_file_path: str,
+    line: int,
+    depth: int = 1,
+    context_lines: int = 40,
+) -> dict:
+    """Find the enclosing function or class for a specific line number.
+
+    Given a file and line number, returns the complete enclosing definition
+    (function, method, class, struct, etc.) containing that line. Use depth=2
+    to get the parent definition (e.g., the class containing a method).
+    Falls back to a centered context window for unsupported languages or
+    top-level code.
+
+    Parameters:
+    - absolute_file_path: Absolute path to the file
+    - line: Line number to find the enclosing definition for (1-indexed)
+    - depth: Nesting depth: 1 = innermost, 2 = parent definition
+    - context_lines: Lines of context for fallback window
+
+    Returns:
+    - Content of the enclosing definition with metadata
+    """
+    canonical_path = normalize_path(absolute_file_path)
+
+    # Validate parameters
+    if line < 1:
+        raise ToolError("line must be >= 1.")
+    if depth < 1:
+        raise ToolError("depth must be >= 1.")
+    if context_lines < 1:
+        raise ToolError("context_lines must be >= 1.")
+
+    lines = read_file_lines(canonical_path)
+    content = read_file_content(canonical_path)
+    total_lines = len(lines)
+
+    if line > total_lines:
+        raise ToolError(f"line {line} is beyond end of file ({total_lines} lines).")
+
+    result = find_enclosing_definition(canonical_path, content, line, depth)
+
+    if result is not None:
+        content_text, start_line, end_line, symbol_label = result
+        return {
+            "content": content_text,
+            "start_line": start_line,
+            "end_line": end_line,
+            "lines_returned": end_line - start_line + 1,
+            "total_lines": total_lines,
+            "mode": "enclosing",
+            "enclosing_symbol": symbol_label,
+        }
+
+    # Fallback: centered context window
+    start = max(1, line - context_lines // 2)
+    end = min(total_lines, start + context_lines - 1)
+    # Backfill: shift start backward when clipped at EOF
+    if end - start + 1 < context_lines:
+        start = max(1, end - context_lines + 1)
+    content_text = "".join(lines[start - 1 : end])
+    return {
+        "content": content_text,
+        "start_line": start,
+        "end_line": end,
+        "lines_returned": end - start + 1,
+        "total_lines": total_lines,
+        "mode": "context_window",
+        "enclosing_symbol": None,
+    }
 
 
 def _change_result_to_dict(r: ChangeResult) -> dict:
